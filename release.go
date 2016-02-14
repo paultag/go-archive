@@ -160,8 +160,8 @@ type Release struct {
 	// is higher than the version of the package in other sources (APT assigns
 	// priority 100).
 	//
-	//	Specifying "yes" for ButAutomaticUpgrades without specifying "yes" for
-	//	NotAutomatic is invalid.
+	// Specifying "yes" for ButAutomaticUpgrades without specifying "yes" for
+	// NotAutomatic is invalid.
 	NotAutomatic         string
 	ButAutomaticUpgrades string
 }
