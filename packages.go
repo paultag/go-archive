@@ -65,10 +65,7 @@ type Packages struct {
 
 func (p *Packages) Next() (*Package, error) {
 	next := Package{}
-	if err := p.decoder.Decode(&next); err != nil {
-		return nil, err
-	}
-	return &next, nil
+	return &next, p.decoder.Decode(&next)
 }
 
 // }}}
