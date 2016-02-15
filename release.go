@@ -1,3 +1,23 @@
+/* {{{ Copyright (c) Paul R. Tagliamonte <paultag@debian.org>, 2015
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE. }}} */
+
 package archive
 
 import (
@@ -8,20 +28,7 @@ import (
 	"pault.ag/go/debian/dependency"
 )
 
-func LoadInRelease(path string, keyring *openpgp.EntityList) (*Release, error) {
-	ret := Release{}
-
-	fd, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-
-	decoder, err := control.NewDecoder(fd, keyring)
-	if err != nil {
-		return nil, err
-	}
-	return &ret, decoder.Decode(&ret)
-}
+// Release {{{
 
 // The file "dists/$DIST/InRelease" shall contain meta-information about the
 // distribution and checksums for the indices, possibly signed with a GPG
@@ -58,8 +65,7 @@ type Release struct {
 	// or experimental; with optional suffixes such as -updates.
 	//
 	// Example:
-	//
-	//   Suite: stable
+	// //   Suite: stable
 	Suite string
 
 	// The Codename field shall describe the codename of the release. A
@@ -165,3 +171,26 @@ type Release struct {
 	NotAutomatic         string
 	ButAutomaticUpgrades string
 }
+
+// }}}
+
+// LoadInRelease {{{
+
+func LoadInRelease(path string, keyring *openpgp.EntityList) (*Release, error) {
+	ret := Release{}
+
+	fd, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+
+	decoder, err := control.NewDecoder(fd, keyring)
+	if err != nil {
+		return nil, err
+	}
+	return &ret, decoder.Decode(&ret)
+}
+
+// }}}
+
+// vim: foldmethod=marker
