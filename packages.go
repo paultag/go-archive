@@ -21,8 +21,15 @@
 package archive
 
 import (
+	"fmt"
+	"io"
 	"os"
 	"strconv"
+
+	"crypto/md5"
+	"crypto/sha1"
+	"crypto/sha256"
+	"hash"
 
 	"pault.ag/go/debian/control"
 	"pault.ag/go/debian/deb"
@@ -73,6 +80,23 @@ func PackageFromDeb(debFile deb.Deb) (*Package, error) {
 		return nil, err
 	}
 	paragraph.Set("Size", strconv.Itoa(int(stat.Size())))
+	/* Right, now, in addition, we ought to hash the crap out of the file */
+
+	for key, hasher := range map[string]hash.Hash{
+		"MD5sum": md5.New(),
+		"SHA1":   sha1.New(),
+		"SHA256": sha256.New(),
+	} {
+		fd, err := os.Open(debFile.Path)
+		if err != nil {
+			return nil, err
+		}
+		/* XXX: Fix this to stream to all the hashing at once */
+		if _, err := io.Copy(hasher, fd); err != nil {
+			return nil, err
+		}
+		paragraph.Set(key, fmt.Sprintf("%x\n", hasher.Sum(nil)))
+	}
 
 	return &pkg, control.UnpackFromParagraph(debFile.Control.Paragraph, &pkg)
 }
