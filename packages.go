@@ -22,8 +22,10 @@ package archive
 
 import (
 	"os"
+	"strconv"
 
 	"pault.ag/go/debian/control"
+	"pault.ag/go/debian/deb"
 	"pault.ag/go/debian/dependency"
 	"pault.ag/go/debian/version"
 )
@@ -52,6 +54,30 @@ type Package struct {
 	SHA256         string
 	DescriptionMD5 string `control:"Description-md5"`
 }
+
+// PackageFromDeb {{{
+
+func PackageFromDeb(debFile deb.Deb) (*Package, error) {
+	pkg := Package{}
+
+	paragraph := debFile.Control.Paragraph
+	paragraph.Set("Filename", debFile.Path)
+	/* Now, let's do some magic */
+
+	fd, err := os.Open(debFile.Path)
+	if err != nil {
+		return nil, err
+	}
+	stat, err := fd.Stat()
+	if err != nil {
+		return nil, err
+	}
+	paragraph.Set("Size", strconv.Itoa(int(stat.Size())))
+
+	return &pkg, control.UnpackFromParagraph(debFile.Control.Paragraph, &pkg)
+}
+
+// }}}
 
 // }}}
 
