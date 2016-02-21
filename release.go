@@ -21,7 +21,10 @@
 package archive
 
 import (
+	"fmt"
 	"os"
+	"strconv"
+	"strings"
 
 	"golang.org/x/crypto/openpgp"
 	"pault.ag/go/debian/control"
@@ -148,9 +151,9 @@ type Release struct {
 	// file, the client shall not use any information from that file, inform
 	// the user, and might use old information (such as the previous locally
 	// kept information) instead.
-	MD5Sum string
-	SHA1   string
-	SHA256 string
+	MD5Sum []ReleaseHash `delim:"\n" strip:" \t\n\r"`
+	SHA1   []ReleaseHash `delim:"\n" strip:" \t\n\r"`
+	SHA256 []ReleaseHash `delim:"\n" strip:" \t\n\r"`
 
 	// The NotAutomatic and ButAutomaticUpgrades fields are optional boolean
 	// fields instructing the package manager. They may contain the values
@@ -192,5 +195,35 @@ func LoadInRelease(path string, keyring *openpgp.EntityList) (*Release, error) {
 }
 
 // }}}
+
+type ReleaseHash struct {
+	Hash string
+	Size int
+	Path string
+}
+
+func (r *ReleaseHash) UnmarshalControl(data string) error {
+	/* Right, so these entries are in the format:
+	 *  hash size path
+	 * our goal is to strip that out into meaningful data */
+
+	for _, entry := range strings.Split(data, "\n") {
+		els := strings.Split(entry, " ")
+		if len(els) != 3 {
+			return fmt.Errorf("Entry '%s' has too many chunks", entry)
+		}
+
+		size, err := strconv.Atoi(els[1])
+		if err != nil {
+			return err
+		}
+
+		r.Size = size
+		r.Hash = els[0]
+		r.Path = els[2]
+	}
+
+	return nil
+}
 
 // vim: foldmethod=marker

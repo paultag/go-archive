@@ -95,7 +95,7 @@ func PackageFromDeb(debFile deb.Deb) (*Package, error) {
 		if _, err := io.Copy(hasher, fd); err != nil {
 			return nil, err
 		}
-		paragraph.Set(key, fmt.Sprintf("%x\n", hasher.Sum(nil)))
+		paragraph.Set(key, fmt.Sprintf("%x", hasher.Sum(nil)))
 	}
 
 	return &pkg, control.UnpackFromParagraph(debFile.Control.Paragraph, &pkg)
