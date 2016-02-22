@@ -39,6 +39,9 @@ import (
 
 // Package {{{
 
+// Binary .deb Package entry, as it exists in the Packages file, which
+// contains the .deb Control information, as well as information on
+// where the file lives, the file size, and some hashes.
 type Package struct {
 	control.Paragraph
 
@@ -64,6 +67,9 @@ type Package struct {
 
 // PackageFromDeb {{{
 
+// Create a Package entry from a deb.Deb file. This will copy the binary
+// .deb Control file into the Package entry, and set information as to
+// the location of the file, the size of the file, and hash the file.
 func PackageFromDeb(debFile deb.Deb) (*Package, error) {
 	pkg := Package{}
 
@@ -107,12 +113,16 @@ func PackageFromDeb(debFile deb.Deb) (*Package, error) {
 
 // Packages {{{
 
+// Iterator to access the entries contained in the Packages entry in an
+// apt repo. This contians information about the binary Debian packages.
 type Packages struct {
 	decoder *control.Decoder
 }
 
 // Next {{{
 
+// Get the next Package entry in the Packages list. This will return an
+// io.EOF at the last entry.
 func (p *Packages) Next() (*Package, error) {
 	next := Package{}
 	return &next, p.decoder.Decode(&next)
@@ -122,6 +132,9 @@ func (p *Packages) Next() (*Package, error) {
 
 // LoadPackages {{{
 
+// Given a path, create a Packages iterator. Note that the Packages
+// file is not OpenPGP signed, so one will need to verify the integrety
+// of this file from the InRelease file before trusting any output.
 func LoadPackages(path string) (*Packages, error) {
 	fd, err := os.Open(path)
 	if err != nil {

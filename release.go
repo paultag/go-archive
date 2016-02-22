@@ -176,6 +176,8 @@ type Release struct {
 
 // LoadInRelease {{{
 
+// Given a path to the InRelease file on the filesystem, and the OpenPGP keyring
+// to validate against, return the parsed InRelease file.
 func LoadInRelease(path string, keyring *openpgp.EntityList) (*Release, error) {
 	ret := Release{}
 
