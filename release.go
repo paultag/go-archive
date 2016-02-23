@@ -21,6 +21,7 @@
 package archive
 
 import (
+	"io"
 	"os"
 
 	"golang.org/x/crypto/openpgp"
@@ -172,25 +173,48 @@ type Release struct {
 	ButAutomaticUpgrades string
 }
 
+func (r Release) Indices() map[string][]control.DebianFileHash {
+	ret := map[string][]control.DebianFileHash{}
+	for _, el := range r.MD5Sum {
+		ret[el.Filename] = append(ret[el.Filename], el.DebianFileHash)
+	}
+	for _, el := range r.SHA1 {
+		ret[el.Filename] = append(ret[el.Filename], el.DebianFileHash)
+	}
+	for _, el := range r.SHA256 {
+		ret[el.Filename] = append(ret[el.Filename], el.DebianFileHash)
+	}
+	return ret
+}
+
 // }}}
 
 // LoadInRelease {{{
 
+// Given an InRelease io.Reader, and the OpenPGP keyring
+// to validate against, return the parsed InRelease file.
+func LoadInRelease(in io.Reader, keyring *openpgp.EntityList) (*Release, error) {
+	ret := Release{}
+	decoder, err := control.NewDecoder(in, keyring)
+	if err != nil {
+		return nil, err
+	}
+	return &ret, decoder.Decode(&ret)
+}
+
+// }}}
+
+// LoadInReleaseFile {{{
+
 // Given a path to the InRelease file on the filesystem, and the OpenPGP keyring
 // to validate against, return the parsed InRelease file.
-func LoadInRelease(path string, keyring *openpgp.EntityList) (*Release, error) {
-	ret := Release{}
-
+func LoadInReleaseFile(path string, keyring *openpgp.EntityList) (*Release, error) {
 	fd, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 
-	decoder, err := control.NewDecoder(fd, keyring)
-	if err != nil {
-		return nil, err
-	}
-	return &ret, decoder.Decode(&ret)
+	return LoadInRelease(fd, keyring)
 }
 
 // }}}
