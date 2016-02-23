@@ -130,18 +130,28 @@ func (p *Packages) Next() (*Package, error) {
 
 // }}}
 
-// LoadPackages {{{
+// LoadPackagesFile {{{
 
 // Given a path, create a Packages iterator. Note that the Packages
 // file is not OpenPGP signed, so one will need to verify the integrety
 // of this file from the InRelease file before trusting any output.
-func LoadPackages(path string) (*Packages, error) {
+func LoadPackagesFile(path string) (*Packages, error) {
 	fd, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
-	/* Packages files aren't signed */
-	decoder, err := control.NewDecoder(fd, nil)
+	return LoadPackages(fd)
+}
+
+// }}}
+
+// LoadPackages {{{
+
+// Given an io.Reader, create a Packages iterator. Note that the Packages
+// file is not OpenPGP signed, so one will need to verify the integrety
+// of this file from the InRelease file before trusting any output.
+func LoadPackages(in io.Reader) (*Packages, error) {
+	decoder, err := control.NewDecoder(in, nil)
 	if err != nil {
 		return nil, err
 	}
