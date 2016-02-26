@@ -59,9 +59,9 @@ type Package struct {
 
 	Filename       string `required:"true"`
 	Size           int    `required:"true"`
-	MD5sum         string
-	SHA1           string
-	SHA256         string
+	MD5sum         string `required:"true"`
+	SHA1           string `required:"true"`
+	SHA256         string `required:"true"`
 	DescriptionMD5 string `control:"Description-md5"`
 }
 
