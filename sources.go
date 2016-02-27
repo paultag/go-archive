@@ -100,7 +100,6 @@ func LoadSourcesFile(path string) (*Sources, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer fd.Close()
 	return LoadSources(fd)
 }
 
