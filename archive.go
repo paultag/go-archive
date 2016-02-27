@@ -1,62 +1,80 @@
 package archive
 
 import (
-	"fmt"
+	"io"
 	"os"
 	"path"
 
 	"golang.org/x/crypto/openpgp"
-	"pault.ag/go/debian/dependency"
 )
 
-// archive LoadRelease  name
-// archive LoadSources  component
-// archive LoadPackages arches, components
+// Common Types {{{
 
 type Closer func() error
+type PathReader func(path string) (io.Reader, Closer, error)
 
-type ArchiveReader interface {
-	GetRelease(name string) (*Release, error)
-	GetSources(component string) (*Sources, Closer, error)
-	GetPackages(suite, component string, arch dependency.Arch) (*Packages, Closer, error)
+// }}}
+
+// Archive {{{
+
+type Archive struct {
+	root       string
+	pathReader PathReader
+	keyring    *openpgp.EntityList
 }
 
-type filesystemArchiveReader struct {
-	root    string
-	keyring *openpgp.EntityList
-}
+// Release {{{
 
-func (f filesystemArchiveReader) GetRelease(name string) (*Release, error) {
-	inReleasePath := path.Join(f.root, "dists", name, "InRelease")
-	return LoadInReleaseFile(inReleasePath, f.keyring)
-}
-
-func (f filesystemArchiveReader) GetSources(component string) (*Sources, Closer, error) {
-	return nil, nil, nil
-}
-
-func (f filesystemArchiveReader) GetPackages(suite, component string, arch dependency.Arch) (*Packages, Closer, error) {
-	packagesPath := path.Join(
-		f.root, "dists", suite, component,
-		fmt.Sprintf("binary-%s", arch.String()),
-		"Packages",
-	)
-	fd, err := os.Open(packagesPath)
+func (a Archive) Release(suite string) (*Release, error) {
+	/* We'll just read the InRelease, results in the fewest IO calls */
+	inReleasePath := path.Join(a.root, "dists", suite, "InRelease")
+	reader, closer, err := a.pathReader(inReleasePath)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	packages, err := LoadPackages(fd)
+	/* We don't need to return the Closer, since the entire reader will
+	 * be consumed -- and no remaining data is given to the user */
+	defer closer()
+
+	release, err := LoadInRelease(reader, a.keyring)
 	if err != nil {
-		fd.Close()
-		return nil, nil, err
+		return nil, err
 	}
-	return packages, fd.Close, nil
+	return release, err
 }
 
-func NewFilesystemArchiveReader(
+// }}}
+
+// Constructors {{{
+
+func NewArchive(
 	root string,
+	pathReader PathReader,
 	keyring *openpgp.EntityList,
-) (ArchiveReader, error) {
-	return filesystemArchiveReader{root: root, keyring: keyring}, nil
+) Archive {
+	return Archive{
+		root:       root,
+		pathReader: pathReader,
+		keyring:    keyring,
+	}
 }
+
+func NewFilesystemArchive(root string, keyring *openpgp.EntityList) Archive {
+	return NewArchive(root, filesystemPathReader, keyring)
+}
+
+// }}}
+
+// Readers {{{
+
+func filesystemPathReader(path string) (io.Reader, Closer, error) {
+	fd, err := os.Open(path)
+	return fd, fd.Close, err
+}
+
+// }}}
+
+// }}}
+
+// vim: foldmethod=marker
