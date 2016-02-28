@@ -54,6 +54,92 @@ type Archive struct {
 	keyring    *openpgp.EntityList
 }
 
+func (a Archive) Suite(name string) (*Suite, error) {
+	inReleasePath := path.Join("dists", name, "InRelease")
+	reader, closer, err := a.getFile(inReleasePath)
+	if err != nil {
+		return nil, err
+	}
+	defer closer()
+
+	release, err := LoadInRelease(reader, a.keyring)
+	if err != nil {
+		return nil, err
+	}
+	return &Suite{
+		Release: *release,
+		archive: a,
+	}, nil
+}
+
+type Suite struct {
+	Release Release
+	archive Archive
+}
+
+func (s Suite) HasArch(arch dependency.Arch) bool {
+	for _, el := range s.Release.Architectures {
+		if el.Is(&arch) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s Suite) HasComponent(component string) bool {
+	for _, el := range s.Release.Components {
+		if el == component {
+			return true
+		}
+	}
+	return false
+}
+
+func (s Suite) Sources(component string) (*Sources, Closer, error) {
+	if !s.HasComponent(component) {
+		return nil, nil, fmt.Errorf("No such component: '%s'", component)
+	}
+	sourcesPath := path.Join(
+		"dists", s.Release.Suite, component, "source", "Sources",
+	)
+	reader, closer, err := s.archive.getFile(sourcesPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	sources, err := LoadSources(reader)
+	if err != nil {
+		closer()
+		return nil, nil, err
+	}
+	return sources, closer, nil
+}
+
+func (s Suite) Packages(component string, arch dependency.Arch) (*Packages, Closer, error) {
+	if !s.HasComponent(component) {
+		return nil, nil, fmt.Errorf("No such component: '%s'", component)
+	}
+	if !s.HasArch(arch) {
+		return nil, nil, fmt.Errorf("No such arch: '%s'", arch.String())
+	}
+	packagesPath := path.Join(
+		"dists", s.Release.Suite, component,
+		fmt.Sprintf("binary-%s", arch.String()),
+		"Packages",
+	)
+	reader, closer, err := s.archive.getFile(packagesPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	packages, err := LoadPackages(reader)
+	if err != nil {
+		closer()
+		return nil, nil, err
+	}
+	return packages, closer, nil
+}
+
+// getFile wrapper {{{
+
 func (a Archive) getFile(requestPath string) (io.Reader, Closer, error) {
 	archivePath := path.Join(a.root, requestPath)
 	reader, closer, err := a.pathReader(archivePath)
@@ -73,73 +159,6 @@ func (a Archive) getFile(requestPath string) (io.Reader, Closer, error) {
 	}
 
 	return reader, closer, err
-}
-
-// Release {{{
-
-func (a Archive) Release(suite string) (*Release, error) {
-	/* We'll just read the InRelease, results in the fewest IO calls */
-	inReleasePath := path.Join("dists", suite, "InRelease")
-	reader, closer, err := a.getFile(inReleasePath)
-	if err != nil {
-		return nil, err
-	}
-
-	/* We don't need to return the Closer, since the entire reader will
-	 * be consumed -- and no remaining data is given to the user */
-	defer closer()
-
-	release, err := LoadInRelease(reader, a.keyring)
-	if err != nil {
-		return nil, err
-	}
-	return release, err
-}
-
-// }}}
-
-// Packages {{{
-
-func (a Archive) Packages(suite, component string, arch dependency.Arch) (*Packages, Closer, error) {
-	packagesPath := path.Join(
-		"dists", suite, component,
-		fmt.Sprintf("binary-%s", arch.String()),
-		"Packages",
-	)
-
-	reader, closer, err := a.getFile(packagesPath)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	/* Packages isn't signed */
-	release, err := LoadPackages(reader)
-	if err != nil {
-		closer()
-		return nil, nil, err
-	}
-	return release, closer, err
-}
-
-// }}}
-
-// Sources {{{
-
-func (a Archive) Sources(suite, component string, arch dependency.Arch) (*Sources, Closer, error) {
-	packagesPath := path.Join("dists", suite, component, "source", "Sources.gz")
-
-	reader, closer, err := a.getFile(packagesPath)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	/* Packages isn't signed */
-	release, err := LoadSources(reader)
-	if err != nil {
-		closer()
-		return nil, nil, err
-	}
-	return release, closer, err
 }
 
 // }}}
