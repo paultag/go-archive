@@ -12,6 +12,7 @@ import (
 	"xi2.org/x/xz"
 
 	"golang.org/x/crypto/openpgp"
+	"pault.ag/go/debian/control"
 	"pault.ag/go/debian/dependency"
 )
 
@@ -113,25 +114,30 @@ func (s Suite) HasComponent(component string) bool {
 
 // }}}
 
-// Sources index for a Suite {{{
+// getHashedFileReader - get a Hashed File {{{
 
-func (s Suite) Sources(component string) (*Sources, Closer, error) {
-	if !s.HasComponent(component) {
-		return nil, nil, fmt.Errorf("No such component: '%s'", component)
-	}
-	sourcesPath := path.Join(
-		"dists", s.Release.Suite, component, "source", "Sources",
-	)
-	reader, closer, err := s.archive.getFile(sourcesPath)
+func (s Suite) getHashedFileReader(suitePath string) (io.Reader, Closer, control.FileHashValidators, error) {
+	packagesPath := path.Join("dists", s.Release.Suite, suitePath)
+	reader, closer, err := s.archive.getFile(packagesPath)
+
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	sources, err := LoadSources(reader)
+
+	hashes := s.Release.Indices()[suitePath]
+	if len(hashes) == 0 {
+		closer()
+		return nil, nil, nil, fmt.Errorf("Undeclared file in InRelease")
+	}
+
+	validators, err := hashes.Validators()
 	if err != nil {
 		closer()
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return sources, closer, nil
+
+	validationReader := io.TeeReader(reader, validators.Writer())
+	return validationReader, closer, validators, err
 }
 
 // }}}
@@ -139,39 +145,30 @@ func (s Suite) Sources(component string) (*Sources, Closer, error) {
 // Packages index for a Suite {{{
 
 func (s Suite) Packages(component string, arch dependency.Arch) ([]Package, error) {
+	ret := []Package{}
+
 	if !s.HasComponent(component) {
-		return []Package{}, fmt.Errorf("No such component: '%s'", component)
+		return ret, fmt.Errorf("No such component: '%s'", component)
 	}
 	if !s.HasArch(arch) {
-		return []Package{}, fmt.Errorf("No such arch: '%s'", arch.String())
+		return ret, fmt.Errorf("No such arch: '%s'", arch.String())
 	}
 	suitePath := path.Join(
 		component,
 		fmt.Sprintf("binary-%s", arch.String()),
 		"Packages",
 	)
-	packagesPath := path.Join("dists", s.Release.Suite, suitePath)
-	reader, closer, err := s.archive.getFile(packagesPath)
+
+	validationReader, closer, validators, err := s.getHashedFileReader(suitePath)
 	if err != nil {
 		return []Package{}, err
 	}
 	defer closer()
 
-	hashes := s.Release.Indices()[suitePath]
-
-	validators, err := hashes.Validators()
-	if err != nil {
-		return []Package{}, err
-	}
-
-	validationReader := io.TeeReader(reader, validators.Writer())
-
 	packages, err := LoadPackages(validationReader)
 	if err != nil {
 		return []Package{}, err
 	}
-
-	ret := []Package{}
 
 	for {
 		next, err := packages.Next()
@@ -180,6 +177,47 @@ func (s Suite) Packages(component string, arch dependency.Arch) ([]Package, erro
 		}
 		if err != nil {
 			return []Package{}, err
+		}
+		ret = append(ret, *next)
+	}
+
+	if !validators.Validate() {
+		return nil, fmt.Errorf("Index hashes don't match!")
+	}
+
+	return ret, nil
+}
+
+// }}}
+
+// Sources index for a Suite {{{
+
+func (s Suite) Sources(component string) ([]Source, error) {
+	ret := []Source{}
+
+	if !s.HasComponent(component) {
+		return ret, fmt.Errorf("No such component: '%s'", component)
+	}
+	suitePath := path.Join(component, "source", "Sources")
+
+	validationReader, closer, validators, err := s.getHashedFileReader(suitePath)
+	if err != nil {
+		return []Source{}, err
+	}
+	defer closer()
+
+	packages, err := LoadSources(validationReader)
+	if err != nil {
+		return []Source{}, err
+	}
+
+	for {
+		next, err := packages.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return []Source{}, err
 		}
 		ret = append(ret, *next)
 	}
