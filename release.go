@@ -173,8 +173,8 @@ type Release struct {
 	ButAutomaticUpgrades string
 }
 
-func (r Release) Indices() map[string][]control.FileHash {
-	ret := map[string][]control.FileHash{}
+func (r Release) Indices() map[string]control.FileHashes {
+	ret := map[string]control.FileHashes{}
 	for _, el := range r.MD5Sum {
 		ret[el.Filename] = append(ret[el.Filename], el.FileHash)
 	}
