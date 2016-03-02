@@ -3,6 +3,7 @@ package archive
 import (
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path"
 	"strings"
@@ -198,7 +199,7 @@ func (s Suite) Sources(component string) ([]Source, error) {
 	if !s.HasComponent(component) {
 		return ret, fmt.Errorf("No such component: '%s'", component)
 	}
-	suitePath := path.Join(component, "source", "Sources")
+	suitePath := path.Join(component, "source", "Sources.gz")
 
 	validationReader, closer, validators, err := s.getHashedFileReader(suitePath)
 	if err != nil {
@@ -236,7 +237,8 @@ func (s Suite) Sources(component string) ([]Source, error) {
 // getFile wrapper {{{
 
 func (a Archive) getFile(requestPath string) (io.Reader, Closer, error) {
-	archivePath := path.Join(a.root, requestPath)
+	archivePath := a.root + "/" + requestPath
+	fmt.Printf("%s\n", archivePath)
 	reader, closer, err := a.pathReader(archivePath)
 	if err != nil {
 		return nil, nil, err
@@ -278,6 +280,10 @@ func NewFilesystemArchive(root string, keyring *openpgp.EntityList) Archive {
 	return NewArchive(root, filesystemPathReader, keyring)
 }
 
+func NewHttpArchive(root string, keyring *openpgp.EntityList) Archive {
+	return NewArchive(root, httpPathReader, keyring)
+}
+
 // }}}
 
 // }}}
@@ -287,6 +293,14 @@ func NewFilesystemArchive(root string, keyring *openpgp.EntityList) Archive {
 func filesystemPathReader(path string) (io.Reader, Closer, error) {
 	fd, err := os.Open(path)
 	return fd, fd.Close, err
+}
+
+func httpPathReader(uri string) (io.Reader, Closer, error) {
+	resp, err := http.Get(uri)
+	if err != nil {
+		return nil, nil, err
+	}
+	return resp.Body, resp.Body.Close, nil
 }
 
 // }}}
