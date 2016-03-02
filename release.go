@@ -149,9 +149,9 @@ type Release struct {
 	// file, the client shall not use any information from that file, inform
 	// the user, and might use old information (such as the previous locally
 	// kept information) instead.
-	MD5Sum []control.MD5DebianFileHash    `delim:"\n" strip:" \t\n\r"`
-	SHA1   []control.SHA1DebianFileHash   `delim:"\n" strip:" \t\n\r"`
-	SHA256 []control.SHA256DebianFileHash `delim:"\n" strip:" \t\n\r"`
+	MD5Sum []control.MD5FileHash    `delim:"\n" strip:" \t\n\r"`
+	SHA1   []control.SHA1FileHash   `delim:"\n" strip:" \t\n\r"`
+	SHA256 []control.SHA256FileHash `delim:"\n" strip:" \t\n\r"`
 
 	// The NotAutomatic and ButAutomaticUpgrades fields are optional boolean
 	// fields instructing the package manager. They may contain the values
@@ -173,16 +173,16 @@ type Release struct {
 	ButAutomaticUpgrades string
 }
 
-func (r Release) Indices() map[string][]control.DebianFileHash {
-	ret := map[string][]control.DebianFileHash{}
+func (r Release) Indices() map[string][]control.FileHash {
+	ret := map[string][]control.FileHash{}
 	for _, el := range r.MD5Sum {
-		ret[el.Filename] = append(ret[el.Filename], el.DebianFileHash)
+		ret[el.Filename] = append(ret[el.Filename], el.FileHash)
 	}
 	for _, el := range r.SHA1 {
-		ret[el.Filename] = append(ret[el.Filename], el.DebianFileHash)
+		ret[el.Filename] = append(ret[el.Filename], el.FileHash)
 	}
 	for _, el := range r.SHA256 {
-		ret[el.Filename] = append(ret[el.Filename], el.DebianFileHash)
+		ret[el.Filename] = append(ret[el.Filename], el.FileHash)
 	}
 	return ret
 }
