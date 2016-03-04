@@ -63,13 +63,20 @@ type Source struct {
 	Maintainer       string
 	Uploaders        []string
 	Homepage         string
-	StandardsVersion string                `control:"Standards-Version"`
-	BuildDepends     dependency.Dependency `control:"Build-Depends"`
+	StandardsVersion string `control:"Standards-Version"`
 
 	ChecksumsSha1   []control.SHA1FileHash        `control:"Checksums-Sha1" delim:"\n" strip:"\n\r\t "`
 	ChecksumsSha256 []control.SHA256FileHash      `control:"Checksums-Sha256" delim:"\n" strip:"\n\r\t "`
 	Files           []control.FileListDSCFileHash `control:"Files" delim:"\n" strip:"\n\r\t "`
 }
+
+// Source Helpers {{{
+
+func (s Source) BuildDepends() (*dependency.Dependency, error) {
+	return dependency.Parse(s.Paragraph.Values["Build-Depends"])
+}
+
+// }}}
 
 // }}}
 
