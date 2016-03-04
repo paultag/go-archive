@@ -60,7 +60,7 @@ type Archive struct {
 
 func (a Archive) Suite(name string) (*Suite, error) {
 	inReleasePath := path.Join("dists", name, "InRelease")
-	reader, closer, err := a.getFile(inReleasePath)
+	reader, closer, err := a.getFile(inReleasePath, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -118,27 +118,24 @@ func (s Suite) HasComponent(component string) bool {
 // getHashedFileReader - get a Hashed File {{{
 
 func (s Suite) getHashedFileReader(suitePath string) (io.Reader, Closer, control.FileHashValidators, error) {
-	packagesPath := path.Join("dists", s.Release.Suite, suitePath)
-	reader, closer, err := s.archive.getFile(packagesPath)
-
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
 	hashes := s.Release.Indices()[suitePath]
 	if len(hashes) == 0 {
-		closer()
 		return nil, nil, nil, fmt.Errorf("Undeclared file in InRelease")
 	}
 
 	validators, err := hashes.Validators()
 	if err != nil {
-		closer()
 		return nil, nil, nil, err
 	}
 
-	validationReader := io.TeeReader(reader, validators.Writer())
-	return validationReader, closer, validators, err
+	packagesPath := path.Join("dists", s.Release.Suite, suitePath)
+	reader, closer, err := s.archive.getFile(packagesPath, validators.Writer())
+
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	return reader, closer, validators, err
 }
 
 // }}}
@@ -236,12 +233,15 @@ func (s Suite) Sources(component string) ([]Source, error) {
 
 // getFile wrapper {{{
 
-func (a Archive) getFile(requestPath string) (io.Reader, Closer, error) {
+func (a Archive) getFile(requestPath string, tee io.Writer) (io.Reader, Closer, error) {
 	archivePath := a.root + "/" + requestPath
-	fmt.Printf("%s\n", archivePath)
 	reader, closer, err := a.pathReader(archivePath)
 	if err != nil {
 		return nil, nil, err
+	}
+
+	if tee != nil {
+		reader = io.TeeReader(reader, tee)
 	}
 
 	for suffix, decompressor := range knownCompressionAlgorithms {
