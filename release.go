@@ -173,6 +173,9 @@ type Release struct {
 	ButAutomaticUpgrades string
 }
 
+// Given a file declared in the Release file, get the FileHash entries
+// for that file (MD5, SHA1, SHA256). These can be used to ensure the
+// integrety of files in the archive.
 func (r Release) Indices() map[string]control.FileHashes {
 	ret := map[string]control.FileHashes{}
 	for _, el := range r.MD5Sum {
