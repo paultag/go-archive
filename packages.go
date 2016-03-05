@@ -65,6 +65,44 @@ type Package struct {
 	DescriptionMD5 string `control:"Description-md5"`
 }
 
+// Depends helpers {{{
+
+// Get a dependency relation on the fly, given a key. This is just to reduce
+// redundency on the methods below.
+func getDepends(paragraph control.Paragraph, key string) (*dependency.Dependency, error) {
+	if val, ok := paragraph.Values[key]; ok {
+		return dependency.Parse(val)
+	}
+	return &dependency.Dependency{}, nil
+}
+
+// Parse the Depends Dependency relation on this package.
+func (p Package) Depends() (*dependency.Dependency, error) {
+	return getDepends(p.Paragraph, "Depends")
+}
+
+// Parse the Depends Suggests relation on this package.
+func (p Package) Suggests() (*dependency.Dependency, error) {
+	return getDepends(p.Paragraph, "Suggest")
+}
+
+// Parse the Depends Breaks relation on this package.
+func (p Package) Breaks() (*dependency.Dependency, error) {
+	return getDepends(p.Paragraph, "Breaks")
+}
+
+// Parse the Depends Replaces relation on this package.
+func (p Package) Replaces() (*dependency.Dependency, error) {
+	return getDepends(p.Paragraph, "Replaces")
+}
+
+// Parse the Depends Pre-Depends relation on this package.
+func (p Package) PreDepends() (*dependency.Dependency, error) {
+	return getDepends(p.Paragraph, "Pre-Depends")
+}
+
+// }}}
+
 // PackageFromDeb {{{
 
 // Create a Package entry from a deb.Deb file. This will copy the binary
