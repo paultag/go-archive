@@ -86,6 +86,11 @@ func (p Package) Suggests() (*dependency.Dependency, error) {
 	return getDepends(p.Paragraph, "Suggest")
 }
 
+// Parse the Depends Built-Using relation on this package.
+func (p Package) BuiltUsing() (*dependency.Dependency, error) {
+	return getDepends(p.Paragraph, "Built-Using")
+}
+
 // Parse the Depends Breaks relation on this package.
 func (p Package) Breaks() (*dependency.Dependency, error) {
 	return getDepends(p.Paragraph, "Breaks")
