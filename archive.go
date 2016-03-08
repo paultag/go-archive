@@ -8,10 +8,6 @@ import (
 	"path"
 	"strings"
 
-	"compress/bzip2"
-	"compress/gzip"
-	"xi2.org/x/xz"
-
 	"golang.org/x/crypto/openpgp"
 	"pault.ag/go/debian/control"
 	"pault.ag/go/debian/dependency"
