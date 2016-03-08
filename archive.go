@@ -33,7 +33,7 @@ func (a Archive) Suite(name string) (*Suite, error) {
 
 func (a Archive) Engross(suite Suite) error {
 	for _, target := range suite.componentEncoders {
-		fmt.Printf("%s\n", target.Holder.String())
+		fmt.Printf("%s", target.Holder.String())
 	}
 	return nil
 }
