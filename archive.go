@@ -17,36 +17,7 @@ import (
 	"pault.ag/go/debian/dependency"
 )
 
-// Common Types {{{
-
-type Closer func() error
 type PathReader func(path string) (io.Reader, Closer, error)
-
-// known compression types {{{
-
-type compressionReader func(io.Reader) (io.Reader, error)
-
-func gzipNewReader(r io.Reader) (io.Reader, error) {
-	return gzip.NewReader(r)
-}
-
-func xzNewReader(r io.Reader) (io.Reader, error) {
-	return xz.NewReader(r, 0)
-}
-
-func bzipNewReader(r io.Reader) (io.Reader, error) {
-	return bzip2.NewReader(r), nil
-}
-
-var knownCompressionAlgorithms = map[string]compressionReader{
-	".gz":  gzipNewReader,
-	".bz2": bzipNewReader,
-	".xz":  xzNewReader,
-}
-
-// }}}
-
-// }}}
 
 // Archive {{{
 
@@ -240,22 +211,12 @@ func (a Archive) getFile(requestPath string, tee io.Writer) (io.Reader, Closer, 
 		return nil, nil, err
 	}
 
-	if tee != nil {
-		reader = io.TeeReader(reader, tee)
+	reader, err := compression.Decompress(reader, archivePath, tee)
+	if err != nil {
+		closer()
 	}
+	return reader, err
 
-	for suffix, decompressor := range knownCompressionAlgorithms {
-		if strings.HasSuffix(requestPath, suffix) {
-			newReader, err := decompressor(reader)
-			if err != nil {
-				closer()
-				return nil, nil, err
-			}
-			return newReader, closer, nil
-		}
-	}
-
-	return reader, closer, err
 }
 
 // }}}
