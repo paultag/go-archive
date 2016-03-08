@@ -6,14 +6,15 @@ import (
 	"net/http"
 	"os"
 	"path"
-	"strings"
 
 	"golang.org/x/crypto/openpgp"
 	"pault.ag/go/debian/control"
 	"pault.ag/go/debian/dependency"
+
+	"pault.ag/go/archive/compression"
 )
 
-type PathReader func(path string) (io.Reader, Closer, error)
+type PathReader func(path string) (io.Reader, compression.Closer, error)
 
 // Archive {{{
 
@@ -84,7 +85,7 @@ func (s Suite) HasComponent(component string) bool {
 
 // getHashedFileReader - get a Hashed File {{{
 
-func (s Suite) getHashedFileReader(suitePath string) (io.Reader, Closer, control.FileHashValidators, error) {
+func (s Suite) getHashedFileReader(suitePath string) (io.Reader, compression.Closer, control.FileHashValidators, error) {
 	hashes := s.Release.Indices()[suitePath]
 	if len(hashes) == 0 {
 		return nil, nil, nil, fmt.Errorf("Undeclared file in InRelease")
@@ -200,18 +201,19 @@ func (s Suite) Sources(component string) ([]Source, error) {
 
 // getFile wrapper {{{
 
-func (a Archive) getFile(requestPath string, tee io.Writer) (io.Reader, Closer, error) {
+func (a Archive) getFile(requestPath string, tee io.Writer) (io.Reader, compression.Closer, error) {
 	archivePath := a.root + "/" + requestPath
 	reader, closer, err := a.pathReader(archivePath)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	reader, err := compression.Decompress(reader, archivePath, tee)
+	reader, err = compression.Decompress(reader, archivePath, tee)
 	if err != nil {
 		closer()
+		return nil, nil, err
 	}
-	return reader, err
+	return reader, closer, nil
 
 }
 
@@ -247,12 +249,12 @@ func NewHttpArchive(root string, keyring *openpgp.EntityList) Archive {
 
 // Readers {{{
 
-func filesystemPathReader(path string) (io.Reader, Closer, error) {
+func filesystemPathReader(path string) (io.Reader, compression.Closer, error) {
 	fd, err := os.Open(path)
 	return fd, fd.Close, err
 }
 
-func httpPathReader(uri string) (io.Reader, Closer, error) {
+func httpPathReader(uri string) (io.Reader, compression.Closer, error) {
 	resp, err := http.Get(uri)
 	if err != nil {
 		return nil, nil, err

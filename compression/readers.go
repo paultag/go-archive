@@ -2,6 +2,7 @@ package compression
 
 import (
 	"io"
+	"strings"
 
 	"compress/bzip2"
 	"compress/gzip"
@@ -34,8 +35,8 @@ func Decompress(reader io.Reader, fileName string, tee io.Writer) (io.Reader, er
 		reader = io.TeeReader(reader, tee)
 	}
 
-	for suffix, decompressor := range knownCompressionAlgorithms {
-		if strings.HasSuffix(requestPath, suffix) {
+	for suffix, decompressor := range knownReaders {
+		if strings.HasSuffix(fileName, suffix) {
 			newReader, err := decompressor(reader)
 			if err != nil {
 				return nil, err
