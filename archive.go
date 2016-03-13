@@ -5,8 +5,9 @@ import (
 	"path"
 
 	"pault.ag/go/debian/control"
-	"pault.ag/go/debian/dependency"
 )
+
+// Archive {{{
 
 type Archive struct {
 	root string
@@ -18,9 +19,7 @@ func NewArchive(root string) Archive {
 
 func (a Archive) Suite(name string) (*Suite, error) {
 	inRelease := path.Join(a.root, "dists", name, "InRelease")
-	suite := Suite{
-		Packages: map[string][]Package{},
-	}
+	suite := Suite{Binaries: map[string]Binaries{}}
 
 	fd, err := os.Open(inRelease)
 	if err != nil {
@@ -30,6 +29,10 @@ func (a Archive) Suite(name string) (*Suite, error) {
 	defer fd.Close()
 	return &suite, control.Unmarshal(&suite, fd)
 }
+
+// }}}
+
+// Suite {{{
 
 type Suite struct {
 	control.Paragraph
@@ -41,41 +44,37 @@ type Suite struct {
 	Suite       string
 	Codename    string
 
-	Packages map[string][]Package
+	Binaries map[string]Binaries
 }
 
 func (s Suite) Components() []string {
 	components := []string{}
-	for component, _ := range s.Packages {
+	for component, _ := range s.Binaries {
 		components = append(components, component)
 	}
 	return components
 }
 
-func (s Suite) Architectures() []dependency.Arch {
-	arches := map[string]dependency.Arch{}
-
-	for _, packages := range s.Packages {
-		for _, pkg := range packages {
-			arches[pkg.Architecture.String()] = pkg.Architecture
-		}
-	}
-
-	ret := []dependency.Arch{}
-
-	for _, el := range arches {
-		ret = append(ret, el)
-	}
-
-	return ret
-}
-
 func (s Suite) AddPackageTo(component string, pkg Package) {
-	if els, ok := s.Packages[component]; ok {
-		s.Packages[component] = append(els, pkg)
-	} else {
-		s.Packages[component] = []Package{pkg}
+	if _, ok := s.Binaries[component]; !ok {
+		s.Binaries[component] = Binaries{arches: map[string][]Package{}}
 	}
+	s.Binaries[component].Add(pkg)
 }
+
+// }}}
+
+// Binaries {{{
+
+type Binaries struct {
+	arches map[string][]Package
+}
+
+func (b Binaries) Add(pkg Package) {
+	arch := pkg.Architecture.String()
+	b.arches[arch] = append(b.arches[arch], pkg)
+}
+
+// }}}
 
 // vim: foldmethod=marker
