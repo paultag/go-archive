@@ -65,9 +65,9 @@ type Source struct {
 	Homepage         string
 	StandardsVersion string `control:"Standards-Version"`
 
-	ChecksumsSha1   []control.SHA1FileHash        `control:"Checksums-Sha1" delim:"\n" strip:"\n\r\t "`
-	ChecksumsSha256 []control.SHA256FileHash      `control:"Checksums-Sha256" delim:"\n" strip:"\n\r\t "`
-	Files           []control.FileListDSCFileHash `control:"Files" delim:"\n" strip:"\n\r\t "`
+	ChecksumsSha1   []control.SHA1FileHash   `control:"Checksums-Sha1" delim:"\n" strip:"\n\r\t "`
+	ChecksumsSha256 []control.SHA256FileHash `control:"Checksums-Sha256" delim:"\n" strip:"\n\r\t "`
+	Files           []control.MD5FileHash    `control:"Files" delim:"\n" strip:"\n\r\t "`
 }
 
 // Source Helpers {{{
