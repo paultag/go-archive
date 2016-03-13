@@ -7,9 +7,6 @@ import (
 	"pault.ag/go/debian/control"
 )
 
-var hashAlgorithms = []string{"md5", "sha256", "sha512"}
-var compressAlgorithms = []string{"gz", ""}
-
 // Archive {{{
 
 type Archive struct {
