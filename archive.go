@@ -5,6 +5,7 @@ import (
 	"path"
 
 	"pault.ag/go/debian/control"
+	"pault.ag/go/debian/dependency"
 )
 
 type Archive struct {
@@ -49,6 +50,24 @@ func (s Suite) Components() []string {
 		components = append(components, component)
 	}
 	return components
+}
+
+func (s Suite) Architectures() []dependency.Arch {
+	arches := map[string]dependency.Arch{}
+
+	for _, packages := range s.Packages {
+		for _, pkg := range packages {
+			arches[pkg.Architecture.String()] = pkg.Architecture
+		}
+	}
+
+	ret := []dependency.Arch{}
+
+	for _, el := range arches {
+		ret = append(ret, el)
+	}
+
+	return ret
 }
 
 func (s Suite) AddPackageTo(component string, pkg Package) {
