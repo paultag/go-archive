@@ -1,6 +1,7 @@
 package archive
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -37,6 +38,62 @@ func (a Archive) Suite(name string) (*Suite, error) {
 	return &suite, control.Unmarshal(&suite, fd)
 }
 
+func (a Archive) writeObject(suite Suite, data io.Reader, hashes []*transput.Hasher) error {
+	writers := []io.Writer{}
+
+	for _, hash := range hashes {
+		/* dists/<release>/by-hash/<algorithm>/<hash> */
+		dirPath := path.Join(a.root, "dists", suite.Suite, "by-hash", hash.Name())
+
+		if err := os.MkdirAll(dirPath, 0755); err != nil {
+			return err
+		}
+
+		fd, err := os.Create(path.Join(dirPath, fmt.Sprintf("%x", hash.Sum(nil))))
+		if err != nil {
+			return err
+		}
+		defer fd.Close()
+		writers = append(writers, fd)
+	}
+
+	c, err := io.Copy(io.MultiWriter(writers...), data)
+	if err != nil {
+		return err
+	}
+
+	for _, hash := range hashes {
+		if c != hash.Size() {
+			return fmt.Errorf(
+				"Size mismatch: %s (%d), wrote %d",
+				hash.Name(), hash.Size(), c,
+			)
+		}
+	}
+
+	return nil
+}
+
+func (a Archive) Engross(suite Suite) error {
+	for _, packages := range suite.Binaries {
+		for _, arch := range packages.Arches() {
+			target := bytes.Buffer{}
+			writer, hashers, err := NewHashers(suite, &target)
+			if err != nil {
+				panic(err)
+			}
+			if err := packages.WriteArchTo(arch, writer); err != nil {
+				panic(err)
+			}
+
+			if err := a.writeObject(suite, &target, hashers); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // }}}
 
 // Suite {{{
@@ -48,7 +105,7 @@ type Suite struct {
 	Origin      string
 	Label       string
 	Version     string
-	Suite       string
+	Suite       string `required:"true"`
 	Codename    string
 
 	Binaries map[string]Binaries
