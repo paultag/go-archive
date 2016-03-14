@@ -31,7 +31,7 @@ func (a Archive) Suite(name string) (*Suite, error) {
 	suite := Suite{Binaries: map[string]Binaries{}}
 
 	/* Feature flags */
-	suite.features.Hashes = []string{"sha256", "sha512"}
+	suite.features.Hashes = []string{"sha256", "sha1", "md5"}
 
 	fd, err := os.Open(inRelease)
 	if err != nil {
@@ -78,24 +78,66 @@ func (a Archive) writeObject(suite Suite, data io.Reader, hashes []*transput.Has
 	return nil
 }
 
-func (a Archive) Engross(suite Suite) error {
-	for _, packages := range suite.Binaries {
+func (a Archive) Engross(suite Suite) (*Release, error) {
+	engrossedFiles := map[string][]*transput.Hasher{}
+
+	for component, packages := range suite.Binaries {
 		for _, arch := range packages.Arches() {
+			filePath := path.Join(
+				component,
+				fmt.Sprintf("binary-%s", arch),
+				"Packages",
+			)
+
 			target := bytes.Buffer{}
 			writer, hashers, err := NewHashers(suite, &target)
 			if err != nil {
-				panic(err)
+				return nil, err
 			}
+
 			if err := packages.WriteArchTo(arch, writer); err != nil {
-				panic(err)
+				return nil, err
 			}
 
 			if err := a.writeObject(suite, &target, hashers); err != nil {
-				return err
+				return nil, err
+			}
+
+			engrossedFiles[filePath] = hashers
+		}
+	}
+
+	ret := Release{
+		Description:   suite.Description,
+		Origin:        suite.Origin,
+		Label:         suite.Label,
+		Version:       suite.Version,
+		Suite:         suite.Suite,
+		Codename:      suite.Codename,
+		Components:    suite.Components(),
+		Architectures: suite.Arches(),
+		MD5Sum:        []control.MD5FileHash{},
+		SHA1:          []control.SHA1FileHash{},
+		SHA256:        []control.SHA256FileHash{},
+	}
+
+	for path, hashers := range engrossedFiles {
+		for _, hasher := range hashers {
+			fileHash := control.FileHashFromHasher(path, *hasher)
+			switch fileHash.Algorithm {
+			case "sha1":
+				ret.SHA1 = append(ret.SHA1, control.SHA1FileHash{fileHash})
+			case "sha256":
+				ret.SHA256 = append(ret.SHA256, control.SHA256FileHash{fileHash})
+			case "md5":
+				ret.MD5Sum = append(ret.MD5Sum, control.MD5FileHash{fileHash})
+			default:
+				return nil, fmt.Errorf("Unknown hash algorithm: '%s'", fileHash.Algorithm)
 			}
 		}
 	}
-	return nil
+
+	return &ret, nil
 }
 
 // }}}
@@ -118,6 +160,22 @@ type Suite struct {
 		Hashes []string
 		/* Compressors ... */
 	}
+}
+
+func (a Suite) Arches() []dependency.Arch {
+	arches := map[dependency.Arch]bool{}
+
+	for _, binaries := range a.Binaries {
+		for _, arch := range binaries.Arches() {
+			arches[arch] = true
+		}
+	}
+
+	seen := []dependency.Arch{}
+	for arch, _ := range arches {
+		seen = append(seen, arch)
+	}
+	return seen
 }
 
 func (s Suite) Components() []string {
