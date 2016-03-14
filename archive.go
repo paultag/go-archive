@@ -12,6 +12,10 @@ import (
 	"pault.ag/go/debian/transput"
 )
 
+func NewHashers(suite Suite, target io.Writer) (io.Writer, []*transput.Hasher, error) {
+	return transput.NewHasherWriters(suite.features.Hashes, target)
+}
+
 // Archive {{{
 
 type Archive struct {
@@ -114,10 +118,6 @@ type Suite struct {
 		Hashes []string
 		/* Compressors ... */
 	}
-}
-
-func NewHashers(suite Suite, target io.Writer) (io.Writer, []*transput.Hasher, error) {
-	return transput.NewHasherWriters(suite.features.Hashes, target)
 }
 
 func (s Suite) Components() []string {
