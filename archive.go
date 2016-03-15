@@ -52,6 +52,11 @@ func (a Archive) linkObject(suite Suite, hash *transput.Hasher, targetPath strin
 		}
 	}
 
+	dirPath := path.Dir(targetPath)
+	if err := os.MkdirAll(dirPath, 0755); err != nil {
+		return err
+	}
+
 	if err := os.Symlink(objPath, targetPath); err != nil {
 		return err
 	}
@@ -151,9 +156,9 @@ func (a Archive) Engross(suite Suite) (*Release, error) {
 		SHA256:        []control.SHA256FileHash{},
 	}
 
-	for path, hashers := range engrossedFiles {
+	for linkPath, hashers := range engrossedFiles {
 		for _, hasher := range hashers {
-			fileHash := control.FileHashFromHasher(path, *hasher)
+			fileHash := control.FileHashFromHasher(linkPath, *hasher)
 			switch fileHash.Algorithm {
 			case "sha1":
 				ret.SHA1 = append(ret.SHA1, control.SHA1FileHash{fileHash})
@@ -164,6 +169,12 @@ func (a Archive) Engross(suite Suite) (*Release, error) {
 			default:
 				return nil, fmt.Errorf("Unknown hash algorithm: '%s'", fileHash.Algorithm)
 			}
+		}
+
+		if err := a.linkObject(suite, hashers[0], path.Join(
+			a.root, "dists", suite.Suite, linkPath,
+		)); err != nil {
+			return nil, err
 		}
 	}
 
