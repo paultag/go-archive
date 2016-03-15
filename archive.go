@@ -42,40 +42,75 @@ func (a Archive) Suite(name string) (*Suite, error) {
 	return &suite, control.Unmarshal(&suite, fd)
 }
 
-func (a Archive) writeObject(suite Suite, data io.Reader, hashes []*transput.Hasher) error {
-	writers := []io.Writer{}
+func (a Archive) linkObject(suite Suite, hash *transput.Hasher, targetPath string) error {
+	objPath := path.Join("by-hash", hash.Name(), fmt.Sprintf("%x", hash.Sum(nil)))
+	_, err := os.Readlink(targetPath)
 
-	for _, hash := range hashes {
-		/* dists/<release>/by-hash/<algorithm>/<hash> */
-		dirPath := path.Join(a.root, "dists", suite.Suite, "by-hash", hash.Name())
-
-		if err := os.MkdirAll(dirPath, 0755); err != nil {
+	if err == nil {
+		if err := os.Remove(targetPath); err != nil {
 			return err
 		}
+	}
 
-		fd, err := os.Create(path.Join(dirPath, fmt.Sprintf("%x", hash.Sum(nil))))
+	if err := os.Symlink(objPath, targetPath); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (a Archive) objectPath(suite Suite, hash *transput.Hasher) (string, string) {
+	dirPath := path.Join(a.root, "dists", suite.Suite, "by-hash", hash.Name())
+	objPath := path.Join(dirPath, fmt.Sprintf("%x", hash.Sum(nil)))
+	return dirPath, objPath
+}
+
+func (a Archive) objectWriteCloserFor(suite Suite, hash *transput.Hasher) (io.WriteCloser, error) {
+	dirPath, objPath := a.objectPath(suite, hash)
+
+	if err := os.MkdirAll(dirPath, 0755); err != nil {
+		return nil, err
+	}
+
+	fd, err := os.Create(objPath)
+	return fd, err
+}
+
+func (a Archive) writeObject(suite Suite, data io.Reader) ([]*transput.Hasher, error) {
+	target := bytes.Buffer{}
+	writer, hashers, err := NewHashers(suite, &target)
+	if err != nil {
+		return nil, err
+	}
+	/* So, we have a set of hashers, and the target Buffer */
+
+	c, err := io.Copy(writer, data)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, hash := range hashers {
+		if c != hash.Size() {
+			return nil, fmt.Errorf("Size mismatch: %s (%d), wrote %d",
+				hash.Name(), hash.Size(), c)
+		}
+	}
+
+	writers := []io.Writer{}
+	for _, hash := range hashers {
+		fd, err := a.objectWriteCloserFor(suite, hash)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		defer fd.Close()
 		writers = append(writers, fd)
 	}
 
-	c, err := io.Copy(io.MultiWriter(writers...), data)
+	_, err = io.Copy(io.MultiWriter(writers...), &target)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	for _, hash := range hashes {
-		if c != hash.Size() {
-			return fmt.Errorf(
-				"Size mismatch: %s (%d), wrote %d",
-				hash.Name(), hash.Size(), c,
-			)
-		}
-	}
-
-	return nil
+	return hashers, nil
 }
 
 func (a Archive) Engross(suite Suite) (*Release, error) {
@@ -90,19 +125,14 @@ func (a Archive) Engross(suite Suite) (*Release, error) {
 			)
 
 			target := bytes.Buffer{}
-			writer, hashers, err := NewHashers(suite, &target)
+			if err := packages.WriteArchTo(arch, &target); err != nil {
+				return nil, err
+			}
+
+			hashers, err := a.writeObject(suite, &target)
 			if err != nil {
 				return nil, err
 			}
-
-			if err := packages.WriteArchTo(arch, writer); err != nil {
-				return nil, err
-			}
-
-			if err := a.writeObject(suite, &target, hashers); err != nil {
-				return nil, err
-			}
-
 			engrossedFiles[filePath] = hashers
 		}
 	}
@@ -135,6 +165,22 @@ func (a Archive) Engross(suite Suite) (*Release, error) {
 				return nil, fmt.Errorf("Unknown hash algorithm: '%s'", fileHash.Algorithm)
 			}
 		}
+	}
+
+	target := bytes.Buffer{}
+	if err := control.Marshal(&target, &ret); err != nil {
+		return nil, err
+	}
+
+	hashers, err := a.writeObject(suite, &target)
+	if err != nil {
+		return nil, err
+	}
+
+	filePath := path.Join(a.root, "dists", suite.Suite, "Release")
+
+	if err := a.linkObject(suite, hashers[0], filePath); err != nil {
+		return nil, err
 	}
 
 	return &ret, nil
@@ -189,7 +235,7 @@ func (s Suite) Components() []string {
 func (s Suite) AddPackageTo(component string, pkg Package) {
 	if _, ok := s.Binaries[component]; !ok {
 		s.Binaries[component] = Binaries{
-			arches: map[string][]Package{},
+			arches: map[dependency.Arch][]Package{},
 		}
 	}
 	s.Binaries[component].Add(pkg)
@@ -200,34 +246,28 @@ func (s Suite) AddPackageTo(component string, pkg Package) {
 // Binaries {{{
 
 type Binaries struct {
-	arches map[string][]Package
+	arches map[dependency.Arch][]Package
 }
 
 func (b Binaries) Add(pkg Package) {
-	arch := pkg.Architecture.String()
+	arch := pkg.Architecture
 	b.arches[arch] = append(b.arches[arch], pkg)
 }
 
 func (b Binaries) Get(arch dependency.Arch) []Package {
-	return b.arches[arch.String()]
+	return b.arches[arch]
 }
 
 func (b Binaries) Arches() []dependency.Arch {
 	ret := []dependency.Arch{}
-
-	for archName, _ := range b.arches {
-		arch, err := dependency.ParseArch(archName)
-		if err != nil {
-			/* XXX: Wat */
-			continue
-		}
-		ret = append(ret, *arch)
+	for arch, _ := range b.arches {
+		ret = append(ret, arch)
 	}
 	return ret
 }
 
 func (b Binaries) Has(arch dependency.Arch) bool {
-	_, ok := b.arches[arch.String()]
+	_, ok := b.arches[arch]
 	return ok
 }
 
@@ -236,7 +276,7 @@ func (b Binaries) WriteArchTo(arch dependency.Arch, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if packages, ok := b.arches[arch.String()]; ok {
+	if packages, ok := b.arches[arch]; ok {
 		for _, pkg := range packages {
 			if err := encoder.Encode(pkg); err != nil {
 				return err
