@@ -54,38 +54,83 @@ func (a Archive) Suite(name string) (*Suite, error) {
 	}, nil
 }
 
+func (a Archive) encode(data interface{}) (*blobstore.Object, error) {
+	writer, err := a.store.Create()
+	if err != nil {
+		return nil, err
+	}
+	defer writer.Close()
+
+	encoder, err := control.NewEncoder(writer)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := encoder.Encode(data); err != nil {
+		return nil, err
+	}
+
+	obj, err := a.store.Commit(*writer)
+	if err != nil {
+		return nil, err
+	}
+
+	return obj, nil
+}
+
 func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
 	files := map[string]blobstore.Object{}
 
+	release := Release{
+		Description:   "",
+		Origin:        "",
+		Label:         "",
+		Version:       "",
+		Suite:         suite.Name,
+		Codename:      "",
+		Components:    suite.ComponenetNames(),
+		Architectures: suite.Arches(),
+		SHA256:        []control.SHA256FileHash{},
+	}
+
 	for name, component := range suite.Components {
-		for arch, pkg := range component.ByArch() {
-			writer, err := a.store.Create()
-			if err != nil {
-				return nil, err
-			}
-			defer writer.Close()
+		for arch, pkgs := range component.ByArch() {
+			filePath := path.Join("dists", suite.Name, name,
+				fmt.Sprintf("binary-%s", arch), "Packages")
 
-			encoder, err := control.NewEncoder(writer)
+			obj, err := a.encode(pkgs)
 			if err != nil {
-				return nil, err
-			}
-			if err := encoder.Encode(&pkg); err != nil {
 				return nil, err
 			}
 
-			obj, err := a.store.Commit(*writer)
-			if err != nil {
-				return nil, err
-			}
-			files[path.Join(
-				"dists",
-				suite.Name,
-				name,
-				fmt.Sprintf("binary-%s", arch),
-				"Packages",
-			)] = *obj
+			files[filePath] = *obj
 		}
 	}
+
+	writer, err := a.store.Create()
+	if err != nil {
+		return nil, err
+	}
+	defer writer.Close()
+
+	encoder, err := control.NewEncoder(writer)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := encoder.Encode(&release); err != nil {
+		return nil, err
+	}
+
+	obj, err := a.store.Commit(*writer)
+	if err != nil {
+		return nil, err
+	}
+	files[path.Join(
+		"dists",
+		suite.Name,
+		"Release",
+	)] = *obj
 
 	return files, nil
 }
@@ -108,6 +153,28 @@ type Suite struct {
 
 	release    Release
 	Components map[string]*Component
+}
+
+func (s Suite) Arches() []dependency.Arch {
+	ret := map[dependency.Arch]bool{}
+	for _, component := range s.Components {
+		for _, arch := range component.Arches() {
+			ret[arch] = true
+		}
+	}
+	r := []dependency.Arch{}
+	for arch, _ := range ret {
+		r = append(r, arch)
+	}
+	return r
+}
+
+func (s Suite) ComponenetNames() []string {
+	ret := []string{}
+	for name, _ := range s.Components {
+		ret = append(ret, name)
+	}
+	return ret
 }
 
 func (s Suite) Add(name string, pkg Package) {
