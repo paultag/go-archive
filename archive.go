@@ -72,6 +72,11 @@ func (a Archive) Suite(name string) (*Suite, error) {
 		Components: components,
 	}
 
+	suite.Pool = Pool{
+		store: a.store,
+		suite: &suite,
+	}
+
 	suite.features.Hashes = []string{"sha256", "sha1"}
 
 	return &suite, nil
@@ -259,6 +264,7 @@ type Suite struct {
 
 	release    Release
 	Components map[string]*Component
+	Pool       Pool
 
 	features struct {
 		Hashes []string
