@@ -48,6 +48,8 @@ type Archive struct {
 	signingKey *openpgp.Entity
 }
 
+// Suite {{{
+
 func (a Archive) Suite(name string) (*Suite, error) {
 	/* Get the Release / InRelease */
 	inRelease := Release{}
@@ -66,23 +68,28 @@ func (a Archive) Suite(name string) (*Suite, error) {
 	}
 
 	suite := Suite{
-		Name: name,
-
+		Name:       name,
 		release:    inRelease,
 		Components: components,
 	}
 
-	suite.Pool = Pool{
-		store: a.store,
-		suite: &suite,
-	}
-
+	suite.Pool = Pool{store: a.store, suite: &suite}
 	suite.features.Hashes = []string{"sha256", "sha1"}
 
 	return &suite, nil
 }
 
-func (a Archive) encodeHashedBySuite(path string, suite Suite, data interface{}) (*blobstore.Object, []control.FileHash, error) {
+// }}}
+
+// Encoders {{{
+
+// Encode (Hashed (from a Suite)) {{{
+
+func (a Archive) encodeHashedBySuite(
+	path string,
+	suite Suite,
+	data interface{},
+) (*blobstore.Object, []control.FileHash, error) {
 
 	hashers := []*transput.Hasher{}
 	for _, algorithm := range suite.features.Hashes {
@@ -96,7 +103,15 @@ func (a Archive) encodeHashedBySuite(path string, suite Suite, data interface{})
 	return a.encodeHashed(path, hashers, data)
 }
 
-func (a Archive) encodeHashed(path string, hashers []*transput.Hasher, data interface{}) (*blobstore.Object, []control.FileHash, error) {
+// }}}
+
+// Encode (Hashed) {{{
+
+func (a Archive) encodeHashed(
+	path string,
+	hashers []*transput.Hasher,
+	data interface{},
+) (*blobstore.Object, []control.FileHash, error) {
 
 	writers := []io.Writer{}
 	for _, hasher := range hashers {
@@ -115,6 +130,10 @@ func (a Archive) encodeHashed(path string, hashers []*transput.Hasher, data inte
 
 	return obj, fileHashs, nil
 }
+
+// }}}
+
+// Encode (Signed) {{{
 
 func (a Archive) encodeSigned(
 	data interface{},
@@ -162,6 +181,10 @@ func (a Archive) encodeSigned(
 	return obj, sigObj, nil
 }
 
+// }}}
+
+// Encode {{{
+
 func (a Archive) encode(data interface{}, tee io.Writer) (*blobstore.Object, error) {
 	writer, err := a.store.Create()
 	if err != nil {
@@ -190,6 +213,12 @@ func (a Archive) encode(data interface{}, tee io.Writer) (*blobstore.Object, err
 
 	return obj, nil
 }
+
+// }}}
+
+// }}}
+
+// Engross {{{
 
 func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
 	files := map[string]blobstore.Object{}
@@ -242,6 +271,10 @@ func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
 	return files, nil
 }
 
+// }}}
+
+// Link {{{
+
 func (a Archive) Link(blobs map[string]blobstore.Object) error {
 	for p, obj := range blobs {
 		if err := a.store.Link(obj, p); err != nil {
@@ -251,9 +284,15 @@ func (a Archive) Link(blobs map[string]blobstore.Object) error {
 	return nil
 }
 
+// }}}
+
+// Decruft {{{
+
 func (a Archive) Decruft() error {
 	return a.store.GC(blobstore.DumbGarbageCollector{})
 }
+
+// }}}
 
 // }}}
 
@@ -271,6 +310,8 @@ type Suite struct {
 	}
 }
 
+// Arches {{{
+
 func (s Suite) Arches() []dependency.Arch {
 	ret := map[dependency.Arch]bool{}
 	for _, component := range s.Components {
@@ -285,6 +326,10 @@ func (s Suite) Arches() []dependency.Arch {
 	return r
 }
 
+// }}}
+
+// ComponenetNames {{{
+
 func (s Suite) ComponenetNames() []string {
 	ret := []string{}
 	for name, _ := range s.Components {
@@ -292,6 +337,10 @@ func (s Suite) ComponenetNames() []string {
 	}
 	return ret
 }
+
+// }}}
+
+// Add {{{
 
 func (s Suite) Add(name string, pkg Package) {
 	if _, ok := s.Components[name]; !ok {
@@ -302,11 +351,15 @@ func (s Suite) Add(name string, pkg Package) {
 
 // }}}
 
+// }}}
+
 // Component magic {{{
 
 type Component struct {
 	Packages []Package
 }
+
+// ByArch {{{
 
 func (c *Component) ByArch() map[dependency.Arch][]Package {
 	ret := map[dependency.Arch][]Package{}
@@ -319,6 +372,10 @@ func (c *Component) ByArch() map[dependency.Arch][]Package {
 	return ret
 }
 
+// }}}
+
+// Arches {{{
+
 func (c *Component) Arches() []dependency.Arch {
 	ret := []dependency.Arch{}
 	for _, pkg := range c.Packages {
@@ -327,9 +384,15 @@ func (c *Component) Arches() []dependency.Arch {
 	return ret
 }
 
+// }}}
+
+// Add {{{
+
 func (c *Component) Add(p Package) {
 	c.Packages = append(c.Packages, p)
 }
+
+// }}}
 
 // }}}
 
