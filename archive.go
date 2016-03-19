@@ -187,10 +187,11 @@ func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
 
 	for name, component := range suite.Components {
 		for arch, pkgs := range component.ByArch() {
-			filePath := path.Join("dists", suite.Name, name,
-				fmt.Sprintf("binary-%s", arch), "Packages")
+			suitePath := path.Join(name, fmt.Sprintf("binary-%s", arch),
+				"Packages")
+			filePath := path.Join("dists", suite.Name, suitePath)
 
-			obj, hashes, err := a.encodeHashedBySuite(filePath, suite, pkgs)
+			obj, hashes, err := a.encodeHashedBySuite(suitePath, suite, pkgs)
 			if err != nil {
 				return nil, err
 			}
