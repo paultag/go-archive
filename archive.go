@@ -225,6 +225,10 @@ func (a Archive) Link(blobs map[string]blobstore.Object) error {
 	return nil
 }
 
+func (a Archive) Decruft() error {
+	return a.store.GC(blobstore.DumbGarbageCollector{})
+}
+
 // }}}
 
 // Suite magic {{{
