@@ -3,7 +3,10 @@ package archive
 import (
 	"fmt"
 	"io"
+	"os"
 	"path"
+
+	"golang.org/x/crypto/openpgp"
 
 	"pault.ag/go/blobstore"
 	"pault.ag/go/debian/control"
@@ -18,9 +21,47 @@ func New(path string) (*Archive, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	fd, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer fd.Close()
+
 	return &Archive{
 		store: *store,
 	}, nil
+}
+
+func NewWritable(path string, keyring string, keyid uint64) (*Archive, error) {
+	archive, err := New(path)
+	if err != nil {
+		return nil, err
+	}
+
+	fd, err := os.Open(keyring)
+	if err != nil {
+		return nil, err
+	}
+
+	el, err := openpgp.ReadKeyRing(fd)
+	if err != nil {
+		return nil, err
+	}
+
+	keys := el.KeysById(keyid)
+
+	if len(keys) == 0 {
+		return nil, fmt.Errorf("No keys matched that key ID")
+	}
+
+	if len(keys) != 1 {
+		return nil, fmt.Errorf("Too many keys matched that key ID")
+	}
+
+	archive.signingKey = keys[0].Entity
+
+	return archive, err
 }
 
 // }}}
@@ -28,7 +69,8 @@ func New(path string) (*Archive, error) {
 // Archive magic {{{
 
 type Archive struct {
-	store blobstore.Store
+	store      blobstore.Store
+	signingKey *openpgp.Entity
 }
 
 func (a Archive) Suite(name string) (*Suite, error) {
@@ -60,37 +102,28 @@ func (a Archive) Suite(name string) (*Suite, error) {
 	return &suite, nil
 }
 
-func (a Archive) encode(suite Suite, path string, data interface{}) (*blobstore.Object, []control.FileHash, error) {
-	writer, err := a.store.Create()
-	if err != nil {
-		return nil, nil, err
-	}
-	defer writer.Close()
+func (a Archive) encodeHashedBySuite(path string, suite Suite, data interface{}) (*blobstore.Object, []control.FileHash, error) {
 
 	hashers := []*transput.Hasher{}
-	writers := []io.Writer{writer}
-
 	for _, algorithm := range suite.features.Hashes {
 		hasher, err := transput.NewHasher(algorithm)
 		if err != nil {
 			return nil, nil, err
 		}
 		hashers = append(hashers, hasher)
+	}
+
+	return a.encodeHashed(path, hashers, data)
+}
+
+func (a Archive) encodeHashed(path string, hashers []*transput.Hasher, data interface{}) (*blobstore.Object, []control.FileHash, error) {
+
+	writers := []io.Writer{}
+	for _, hasher := range hashers {
 		writers = append(writers, hasher)
 	}
 
-	multiWriter := io.MultiWriter(writers...)
-
-	encoder, err := control.NewEncoder(multiWriter)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	if err := encoder.Encode(data); err != nil {
-		return nil, nil, err
-	}
-
-	obj, err := a.store.Commit(*writer)
+	obj, err := a.encode(data, io.MultiWriter(writers...))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -101,6 +134,35 @@ func (a Archive) encode(suite Suite, path string, data interface{}) (*blobstore.
 	}
 
 	return obj, fileHashs, nil
+}
+
+func (a Archive) encode(data interface{}, tee io.Writer) (*blobstore.Object, error) {
+	writer, err := a.store.Create()
+	if err != nil {
+		return nil, err
+	}
+	defer writer.Close()
+
+	var target io.Writer = writer
+	if tee != nil {
+		target = io.MultiWriter(writer, tee)
+	}
+
+	encoder, err := control.NewEncoder(target)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := encoder.Encode(data); err != nil {
+		return nil, err
+	}
+
+	obj, err := a.store.Commit(*writer)
+	if err != nil {
+		return nil, err
+	}
+
+	return obj, nil
 }
 
 func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
@@ -126,7 +188,7 @@ func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
 			filePath := path.Join("dists", suite.Name, name,
 				fmt.Sprintf("binary-%s", arch), "Packages")
 
-			obj, hashes, err := a.encode(suite, filePath, pkgs)
+			obj, hashes, err := a.encodeHashedBySuite(filePath, suite, pkgs)
 			if err != nil {
 				return nil, err
 			}
@@ -142,11 +204,12 @@ func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
 	}
 
 	filePath := path.Join("dists", suite.Name, "Release")
-	obj, _, err := a.encode(suite, filePath, release)
+	obj, sig, err := a.encodeSigned(release)
 	if err != nil {
 		return nil, err
 	}
 	files[filePath] = *obj
+	files[fmt.Sprintf("%s.asc", filePath)] = *sig
 
 	return files, nil
 }
