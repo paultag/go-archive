@@ -48,27 +48,38 @@ func (a Archive) Suite(name string) (*Suite, error) {
 		}
 	}
 
-	return &Suite{
+	suite := Suite{
 		Name: name,
 
 		release:    inRelease,
 		Components: components,
-	}, nil
+	}
+
+	suite.features.Hashes = []string{"sha256", "sha1"}
+
+	return &suite, nil
 }
 
-func (a Archive) encode(path string, data interface{}) (*blobstore.Object, []control.FileHash, error) {
+func (a Archive) encode(suite Suite, path string, data interface{}) (*blobstore.Object, []control.FileHash, error) {
 	writer, err := a.store.Create()
 	if err != nil {
 		return nil, nil, err
 	}
 	defer writer.Close()
 
-	hasher, err := transput.NewHasher("sha256")
-	if err != nil {
-		return nil, nil, err
+	hashers := []*transput.Hasher{}
+	writers := []io.Writer{writer}
+
+	for _, algorithm := range suite.features.Hashes {
+		hasher, err := transput.NewHasher(algorithm)
+		if err != nil {
+			return nil, nil, err
+		}
+		hashers = append(hashers, hasher)
+		writers = append(writers, hasher)
 	}
 
-	multiWriter := io.MultiWriter(writer, hasher)
+	multiWriter := io.MultiWriter(writers...)
 
 	encoder, err := control.NewEncoder(multiWriter)
 	if err != nil {
@@ -84,9 +95,12 @@ func (a Archive) encode(path string, data interface{}) (*blobstore.Object, []con
 		return nil, nil, err
 	}
 
-	return obj, []control.FileHash{
-		control.FileHashFromHasher(path, *hasher),
-	}, nil
+	fileHashs := []control.FileHash{}
+	for _, hasher := range hashers {
+		fileHashs = append(fileHashs, control.FileHashFromHasher(path, *hasher))
+	}
+
+	return obj, fileHashs, nil
 }
 
 func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
@@ -112,7 +126,7 @@ func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
 			filePath := path.Join("dists", suite.Name, name,
 				fmt.Sprintf("binary-%s", arch), "Packages")
 
-			obj, hashes, err := a.encode(filePath, pkgs)
+			obj, hashes, err := a.encode(suite, filePath, pkgs)
 			if err != nil {
 				return nil, err
 			}
@@ -128,11 +142,12 @@ func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
 	}
 
 	filePath := path.Join("dists", suite.Name, "Release")
-	obj, _, err := a.encode(filePath, release)
+	obj, _, err := a.encode(suite, filePath, release)
 	if err != nil {
 		return nil, err
 	}
 	files[filePath] = *obj
+
 	return files, nil
 }
 
@@ -154,6 +169,10 @@ type Suite struct {
 
 	release    Release
 	Components map[string]*Component
+
+	features struct {
+		Hashes []string
+	}
 }
 
 func (s Suite) Arches() []dependency.Arch {
