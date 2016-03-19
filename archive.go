@@ -2,11 +2,13 @@ package archive
 
 import (
 	"fmt"
+	"io"
 	"path"
 
 	"pault.ag/go/blobstore"
 	"pault.ag/go/debian/control"
 	"pault.ag/go/debian/dependency"
+	"pault.ag/go/debian/transput"
 )
 
 // New {{{
@@ -54,28 +56,37 @@ func (a Archive) Suite(name string) (*Suite, error) {
 	}, nil
 }
 
-func (a Archive) encode(data interface{}) (*blobstore.Object, error) {
+func (a Archive) encode(path string, data interface{}) (*blobstore.Object, []control.FileHash, error) {
 	writer, err := a.store.Create()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer writer.Close()
 
-	encoder, err := control.NewEncoder(writer)
+	hasher, err := transput.NewHasher("sha256")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+
+	multiWriter := io.MultiWriter(writer, hasher)
+
+	encoder, err := control.NewEncoder(multiWriter)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	if err := encoder.Encode(data); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	obj, err := a.store.Commit(*writer)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return obj, nil
+	return obj, []control.FileHash{
+		control.FileHashFromHasher(path, *hasher),
+	}, nil
 }
 
 func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
@@ -91,6 +102,9 @@ func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
 		Components:    suite.ComponenetNames(),
 		Architectures: suite.Arches(),
 		SHA256:        []control.SHA256FileHash{},
+		SHA1:          []control.SHA1FileHash{},
+		SHA512:        []control.SHA512FileHash{},
+		MD5Sum:        []control.MD5FileHash{},
 	}
 
 	for name, component := range suite.Components {
@@ -98,40 +112,27 @@ func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
 			filePath := path.Join("dists", suite.Name, name,
 				fmt.Sprintf("binary-%s", arch), "Packages")
 
-			obj, err := a.encode(pkgs)
+			obj, hashes, err := a.encode(filePath, pkgs)
 			if err != nil {
 				return nil, err
+			}
+
+			for _, hash := range hashes {
+				if err := release.AddHash(hash); err != nil {
+					return nil, err
+				}
 			}
 
 			files[filePath] = *obj
 		}
 	}
 
-	writer, err := a.store.Create()
+	filePath := path.Join("dists", suite.Name, "Release")
+	obj, _, err := a.encode(filePath, release)
 	if err != nil {
 		return nil, err
 	}
-	defer writer.Close()
-
-	encoder, err := control.NewEncoder(writer)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := encoder.Encode(&release); err != nil {
-		return nil, err
-	}
-
-	obj, err := a.store.Commit(*writer)
-	if err != nil {
-		return nil, err
-	}
-	files[path.Join(
-		"dists",
-		suite.Name,
-		"Release",
-	)] = *obj
-
+	files[filePath] = *obj
 	return files, nil
 }
 

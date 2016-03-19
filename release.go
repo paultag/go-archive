@@ -21,6 +21,7 @@
 package archive
 
 import (
+	"fmt"
 	"io"
 	"os"
 
@@ -177,7 +178,7 @@ type Release struct {
 // Given a file declared in the Release file, get the FileHash entries
 // for that file (MD5, SHA1, SHA256). These can be used to ensure the
 // integrety of files in the archive.
-func (r Release) Indices() map[string]control.FileHashes {
+func (r *Release) Indices() map[string]control.FileHashes {
 	ret := map[string]control.FileHashes{}
 	for _, el := range r.MD5Sum {
 		ret[el.Filename] = append(ret[el.Filename], el.FileHash)
@@ -189,6 +190,22 @@ func (r Release) Indices() map[string]control.FileHashes {
 		ret[el.Filename] = append(ret[el.Filename], el.FileHash)
 	}
 	return ret
+}
+
+func (r *Release) AddHash(h control.FileHash) error {
+	switch h.Algorithm {
+	case "sha256":
+		r.SHA256 = append(r.SHA256, control.SHA256FileHash{h})
+	case "sha1":
+		r.SHA1 = append(r.SHA1, control.SHA1FileHash{h})
+	case "sha512":
+		r.SHA512 = append(r.SHA512, control.SHA512FileHash{h})
+	case "md5":
+		r.MD5Sum = append(r.MD5Sum, control.MD5FileHash{h})
+	default:
+		return fmt.Errorf("No known hash: '%s'", h.Algorithm)
+	}
+	return nil
 }
 
 // }}}
