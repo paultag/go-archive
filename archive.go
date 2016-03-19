@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"time"
 
 	"golang.org/x/crypto/openpgp"
 
@@ -177,6 +178,7 @@ func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
 		Codename:      "",
 		Components:    suite.ComponenetNames(),
 		Architectures: suite.Arches(),
+		Date:          time.Now().Format(time.RFC1123Z),
 		SHA256:        []control.SHA256FileHash{},
 		SHA1:          []control.SHA1FileHash{},
 		SHA512:        []control.SHA512FileHash{},
@@ -209,7 +211,7 @@ func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
 		return nil, err
 	}
 	files[filePath] = *obj
-	files[fmt.Sprintf("%s.asc", filePath)] = *sig
+	files[fmt.Sprintf("%s.gpg", filePath)] = *sig
 
 	return files, nil
 }
