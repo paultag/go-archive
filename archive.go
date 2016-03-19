@@ -21,7 +21,7 @@ import (
 
 // New {{{
 
-func New(path string) (*Archive, error) {
+func New(path string, signer *openpgp.Entity) (*Archive, error) {
 	store, err := blobstore.Load(path)
 	if err != nil {
 		return nil, err
@@ -34,39 +34,9 @@ func New(path string) (*Archive, error) {
 	defer fd.Close()
 
 	return &Archive{
-		store: *store,
+		store:      *store,
+		signingKey: signer,
 	}, nil
-}
-
-func NewWritable(path string, keyring string, keyid uint64) (*Archive, error) {
-	archive, err := New(path)
-	if err != nil {
-		return nil, err
-	}
-
-	fd, err := os.Open(keyring)
-	if err != nil {
-		return nil, err
-	}
-
-	el, err := openpgp.ReadKeyRing(fd)
-	if err != nil {
-		return nil, err
-	}
-
-	keys := el.KeysById(keyid)
-
-	if len(keys) == 0 {
-		return nil, fmt.Errorf("No keys matched that key ID")
-	}
-
-	if len(keys) != 1 {
-		return nil, fmt.Errorf("Too many keys matched that key ID")
-	}
-
-	archive.signingKey = keys[0].Entity
-
-	return archive, err
 }
 
 // }}}
