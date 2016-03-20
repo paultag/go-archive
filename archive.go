@@ -21,17 +21,12 @@ import (
 
 // New {{{
 
+// Create a new Archive object
 func New(path string, signer *openpgp.Entity) (*Archive, error) {
 	store, err := blobstore.Load(path)
 	if err != nil {
 		return nil, err
 	}
-
-	fd, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer fd.Close()
 
 	return &Archive{
 		store:      *store,
