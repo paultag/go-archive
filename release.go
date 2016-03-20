@@ -150,10 +150,10 @@ type Release struct {
 	// file, the client shall not use any information from that file, inform
 	// the user, and might use old information (such as the previous locally
 	// kept information) instead.
-	MD5Sum []control.MD5FileHash    `delim:"\n" strip:" \t\n\r"`
-	SHA1   []control.SHA1FileHash   `delim:"\n" strip:" \t\n\r"`
-	SHA256 []control.SHA256FileHash `delim:"\n" strip:" \t\n\r"`
-	SHA512 []control.SHA512FileHash `delim:"\n" strip:" \t\n\r"`
+	MD5Sum []control.MD5FileHash    `delim:"\n" strip:" \t\n\r" multiline:"true"`
+	SHA1   []control.SHA1FileHash   `delim:"\n" strip:" \t\n\r" multiline:"true"`
+	SHA256 []control.SHA256FileHash `delim:"\n" strip:" \t\n\r" multiline:"true"`
+	SHA512 []control.SHA512FileHash `delim:"\n" strip:" \t\n\r" multiline:"true"`
 
 	// The NotAutomatic and ButAutomaticUpgrades fields are optional boolean
 	// fields instructing the package manager. They may contain the values

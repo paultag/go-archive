@@ -81,7 +81,6 @@ func (a Archive) Suite(name string) (*Suite, error) {
 		Origin:      inRelease.Origin,
 		Label:       inRelease.Label,
 		Version:     inRelease.Version,
-		Suite:       inRelease.Suite,
 		release:     inRelease,
 		Components:  components,
 	}
@@ -330,12 +329,13 @@ func (a Archive) Decruft() error {
 // Suite magic {{{
 
 type Suite struct {
-	Name        string
+	control.Paragraph
+
+	Name        string `control:"Suite"`
 	Description string
 	Origin      string
 	Label       string
 	Version     string
-	Suite       string
 
 	release    Release
 	Components map[string]*Component
