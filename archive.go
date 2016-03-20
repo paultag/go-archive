@@ -21,7 +21,13 @@ import (
 
 // New {{{
 
-// Create a new Archive object
+// Create a new Archive at the given `root` on the filesystem, with the
+// openpgp.Entity `signer` (an Entity which contains an OpenPGP Private
+// Key).
+//
+// This interface is intended to *write* Archives, not *read* them. Extra
+// steps must be taken to load an Archive over the network, and attention
+// must be paid when handling the Cryptographic chain of trust.
 func New(path string, signer *openpgp.Entity) (*Archive, error) {
 	store, err := blobstore.Load(path)
 	if err != nil {
@@ -38,6 +44,8 @@ func New(path string, signer *openpgp.Entity) (*Archive, error) {
 
 // Archive magic {{{
 
+// Core Archive abstrcation. This contains helpers to write out package files,
+// as well as handles creating underlying abstractions (such as Suites).
 type Archive struct {
 	store      blobstore.Store
 	signingKey *openpgp.Entity
@@ -45,6 +53,12 @@ type Archive struct {
 
 // Suite {{{
 
+// Get a Suite for a given Archive. Information will be loaded from the
+// InRelease file (if it exists) into the Suite object.
+//
+// The Suite object contains neat abstractions such as Components, and a
+// number of helpers to collection information across all components, such
+// as the `Arches()` helper.
 func (a Archive) Suite(name string) (*Suite, error) {
 	/* Get the Release / InRelease */
 	inRelease := Release{}
@@ -220,6 +234,12 @@ func (a Archive) encode(data interface{}, tee io.Writer) (*blobstore.Object, err
 
 // Engross {{{
 
+// Given a fully formed (and modified!) Suite object, go ahead and Engross
+// the object to the Archive blobstore.
+//
+// This call will return a map of paths to blobs, which can be passed to
+// `Link` to swap all files in at once. Simply Engrossing the Suite won't
+// actually publish it.
 func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
 	files := map[string]blobstore.Object{}
 
@@ -282,6 +302,10 @@ func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
 
 // Link {{{
 
+// Given a mapping of paths to Objects, link all of those objects
+// into the Archive. Objects, after Engrossed, are stored in the
+// blobstore, but won't be actually published until they're linked
+// into place.
 func (a Archive) Link(blobs map[string]blobstore.Object) error {
 	for p, obj := range blobs {
 		if err := a.store.Link(obj, p); err != nil {
@@ -295,6 +319,7 @@ func (a Archive) Link(blobs map[string]blobstore.Object) error {
 
 // Decruft {{{
 
+// Use the default backend to remove any unlinked files from the Blob store.
 func (a Archive) Decruft() error {
 	return a.store.GC(blobstore.DumbGarbageCollector{})
 }
@@ -324,6 +349,8 @@ type Suite struct {
 
 // Arches {{{
 
+// For a Suite, iterate over all known Components, and return a list of
+// unique architectures. Not all Components may have all these arches.
 func (s Suite) Arches() []dependency.Arch {
 	ret := map[dependency.Arch]bool{}
 	for _, component := range s.Components {
@@ -342,6 +369,7 @@ func (s Suite) Arches() []dependency.Arch {
 
 // ComponenetNames {{{
 
+// Return a list of unique component names.
 func (s Suite) ComponenetNames() []string {
 	ret := []string{}
 	for name, _ := range s.Components {
@@ -354,6 +382,7 @@ func (s Suite) ComponenetNames() []string {
 
 // Add {{{
 
+// Add a package `pkg` to the component `name`.
 func (s Suite) Add(name string, pkg Package) {
 	if _, ok := s.Components[name]; !ok {
 		s.Components[name] = &Component{Packages: []Package{}}
@@ -367,12 +396,17 @@ func (s Suite) Add(name string, pkg Package) {
 
 // Component magic {{{
 
+// Component is a section of the Archive, which is a set of Binary packages
+// that are provided to the end user. Debian has three major ones, `main`,
+// `contrib` and `non-free`.
 type Component struct {
 	Packages []Package
 }
 
 // ByArch {{{
 
+// For a Component, get a list of Packages to provide, but split them
+// into a map keyed by the Package's Arch.
 func (c *Component) ByArch() map[dependency.Arch][]Package {
 	ret := map[dependency.Arch][]Package{}
 
@@ -388,6 +422,8 @@ func (c *Component) ByArch() map[dependency.Arch][]Package {
 
 // Arches {{{
 
+// For a Component, get the unique architectures contained in the Binary
+// packages.
 func (c *Component) Arches() []dependency.Arch {
 	ret := []dependency.Arch{}
 	for _, pkg := range c.Packages {
@@ -400,6 +436,7 @@ func (c *Component) Arches() []dependency.Arch {
 
 // Add {{{
 
+// Add a Package to the Component.
 func (c *Component) Add(p Package) {
 	c.Packages = append(c.Packages, p)
 }
