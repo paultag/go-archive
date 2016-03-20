@@ -3,7 +3,6 @@ package archive
 import (
 	"fmt"
 	"io"
-	"os"
 	"path"
 	"time"
 
