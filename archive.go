@@ -68,9 +68,14 @@ func (a Archive) Suite(name string) (*Suite, error) {
 	}
 
 	suite := Suite{
-		Name:       name,
-		release:    inRelease,
-		Components: components,
+		Name:        name,
+		Description: inRelease.Description,
+		Origin:      inRelease.Origin,
+		Label:       inRelease.Label,
+		Version:     inRelease.Version,
+		Suite:       inRelease.Suite,
+		release:     inRelease,
+		Components:  components,
 	}
 
 	suite.Pool = Pool{store: a.store, suite: &suite}
@@ -224,10 +229,10 @@ func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
 	files := map[string]blobstore.Object{}
 
 	release := Release{
-		Description:   "",
-		Origin:        "",
-		Label:         "",
-		Version:       "",
+		Description:   suite.Description,
+		Origin:        suite.Origin,
+		Label:         suite.Label,
+		Version:       suite.Version,
 		Suite:         suite.Name,
 		Codename:      "",
 		Components:    suite.ComponenetNames(),
@@ -299,7 +304,12 @@ func (a Archive) Decruft() error {
 // Suite magic {{{
 
 type Suite struct {
-	Name string
+	Name        string
+	Description string
+	Origin      string
+	Label       string
+	Version     string
+	Suite       string
 
 	release    Release
 	Components map[string]*Component
