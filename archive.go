@@ -228,6 +228,12 @@ func (a Archive) encode(data interface{}, tee io.Writer) (*blobstore.Object, err
 func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
 	files := map[string]blobstore.Object{}
 
+	// duration, err := time.ParseDuration("24h")
+	// if err != nil {
+	// 	return nil, err
+	// }
+	when := time.Now()
+
 	release := Release{
 		Description:   suite.Description,
 		Origin:        suite.Origin,
@@ -237,11 +243,12 @@ func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
 		Codename:      "",
 		Components:    suite.ComponenetNames(),
 		Architectures: suite.Arches(),
-		Date:          time.Now().Format(time.RFC1123Z),
-		SHA256:        []control.SHA256FileHash{},
-		SHA1:          []control.SHA1FileHash{},
-		SHA512:        []control.SHA512FileHash{},
-		MD5Sum:        []control.MD5FileHash{},
+		Date:          when.Format(time.RFC1123Z),
+		// ValidUntil:    when.Add(duration).Format(time.RFC1123Z),
+		SHA256: []control.SHA256FileHash{},
+		SHA1:   []control.SHA1FileHash{},
+		SHA512: []control.SHA512FileHash{},
+		MD5Sum: []control.MD5FileHash{},
 	}
 
 	for name, component := range suite.Components {
