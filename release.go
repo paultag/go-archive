@@ -40,6 +40,8 @@ import (
 // signature of the "Release" file, compatible with the format used by the GPG
 // options "-a -b -s".
 type Release struct {
+	control.Paragraph
+
 	Description string
 
 	// Optional field indicating the origin of the repository, a single line

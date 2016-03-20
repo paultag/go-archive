@@ -60,33 +60,30 @@ type Archive struct {
 // as the `Arches()` helper.
 func (a Archive) Suite(name string) (*Suite, error) {
 	/* Get the Release / InRelease */
-	inRelease := Release{}
+	release := Release{}
 	components := map[string]*Component{}
 
-	fd, err := a.store.OpenPath(path.Join("dists", name, "InRelease"))
+	fd, err := a.store.OpenPath(path.Join("dists", name, "Release"))
 	if err == nil {
 		defer fd.Close()
-		if err := control.Unmarshal(&inRelease, fd); err != nil {
+		if err := control.Unmarshal(&release, fd); err != nil {
 			return nil, err
 		}
 
-		for _, name := range inRelease.Components {
+		for _, name := range release.Components {
 			components[name] = &Component{Packages: []Package{}}
 		}
 	}
 
-	suite := Suite{
-		Name:        name,
-		Description: inRelease.Description,
-		Origin:      inRelease.Origin,
-		Label:       inRelease.Label,
-		Version:     inRelease.Version,
-		release:     inRelease,
-		Components:  components,
+	suite := Suite{Components: components}
+
+	if err := control.UnpackFromParagraph(release.Paragraph, &suite); err != nil {
+		return nil, err
 	}
 
 	suite.Pool = Pool{store: a.store, suite: &suite}
 	suite.features.Hashes = []string{"sha256", "sha1"}
+	// suite.features.Duration = "24h"
 
 	return &suite, nil
 }
@@ -240,12 +237,16 @@ func (a Archive) encode(data interface{}, tee io.Writer) (*blobstore.Object, err
 // actually publish it.
 func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
 	files := map[string]blobstore.Object{}
-
-	// duration, err := time.ParseDuration("24h")
-	// if err != nil {
-	// 	return nil, err
-	// }
 	when := time.Now()
+
+	validUntil := ""
+	if suite.features.Duration != "" {
+		duration, err := time.ParseDuration(suite.features.Duration)
+		if err != nil {
+			return nil, err
+		}
+		validUntil = when.Add(duration).Format(time.RFC1123Z)
+	}
 
 	release := Release{
 		Description:   suite.Description,
@@ -257,7 +258,8 @@ func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
 		Components:    suite.ComponenetNames(),
 		Architectures: suite.Arches(),
 		Date:          when.Format(time.RFC1123Z),
-		// ValidUntil:    when.Add(duration).Format(time.RFC1123Z),
+		ValidUntil:    validUntil,
+
 		SHA256: []control.SHA256FileHash{},
 		SHA1:   []control.SHA1FileHash{},
 		SHA512: []control.SHA512FileHash{},
@@ -337,13 +339,13 @@ type Suite struct {
 	Label       string
 	Version     string
 
-	release    Release
-	Components map[string]*Component
-	Pool       Pool
+	Components map[string]*Component `control:"-"`
+	Pool       Pool                  `control:"-"`
 
 	features struct {
-		Hashes []string
-	}
+		Hashes   []string
+		Duration string
+	} `control:"-"`
 }
 
 // Arches {{{
