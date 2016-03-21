@@ -248,23 +248,27 @@ func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
 		validUntil = when.Add(duration).Format(time.RFC1123Z)
 	}
 
-	release := Release{
-		Description:   suite.Description,
-		Origin:        suite.Origin,
-		Label:         suite.Label,
-		Version:       suite.Version,
-		Suite:         suite.Name,
-		Codename:      "",
-		Components:    suite.ComponenetNames(),
-		Architectures: suite.Arches(),
-		Date:          when.Format(time.RFC1123Z),
-		ValidUntil:    validUntil,
-
-		SHA256: []control.SHA256FileHash{},
-		SHA1:   []control.SHA1FileHash{},
-		SHA512: []control.SHA512FileHash{},
-		MD5Sum: []control.MD5FileHash{},
+	paragraph, err := control.ConvertToParagraph(&suite)
+	if err != nil {
+		return nil, err
 	}
+
+	release := Release{}
+
+	if err := control.UnpackFromParagraph(*paragraph, &release); err != nil {
+		return nil, err
+	}
+
+	release.Date = when.Format(time.RFC1123Z)
+	release.ValidUntil = validUntil
+	release.Architectures = suite.Arches()
+	release.Components = suite.ComponenetNames()
+	release.ValidUntil = validUntil
+
+	release.SHA256 = []control.SHA256FileHash{}
+	release.SHA1 = []control.SHA1FileHash{}
+	release.SHA512 = []control.SHA512FileHash{}
+	release.MD5Sum = []control.MD5FileHash{}
 
 	for name, component := range suite.Components {
 		for arch, pkgs := range component.ByArch() {
