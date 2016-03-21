@@ -60,26 +60,8 @@ type Archive struct {
 // as the `Arches()` helper.
 func (a Archive) Suite(name string) (*Suite, error) {
 	/* Get the Release / InRelease */
-	release := Release{}
 	components := map[string]*Component{}
-
-	fd, err := a.store.OpenPath(path.Join("dists", name, "Release"))
-	if err == nil {
-		defer fd.Close()
-		if err := control.Unmarshal(&release, fd); err != nil {
-			return nil, err
-		}
-
-		for _, name := range release.Components {
-			components[name] = &Component{Packages: []Package{}}
-		}
-	}
-
 	suite := Suite{Components: components}
-
-	if err := control.UnpackFromParagraph(release.Paragraph, &suite); err != nil {
-		return nil, err
-	}
 
 	suite.Pool = Pool{store: a.store, suite: &suite}
 	suite.features.Hashes = []string{"sha256", "sha1"}
