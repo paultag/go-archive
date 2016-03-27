@@ -105,6 +105,7 @@ type PackageCollection struct {
 	encoder *control.Encoder
 	writer  *blobstore.Writer
 	archive *Archive
+	/* XXX: Add a flag to ensure alpha sorted entries */
 }
 
 func (p PackageCollection) Add(pkg Package) error {
