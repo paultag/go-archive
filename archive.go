@@ -42,10 +42,9 @@ type Archive struct {
 // as the `Arches()` helper.
 func (a Archive) Suite(name string) (*Suite, error) {
 	/* Get the Release / InRelease */
-	components := map[string]Component{}
 	suite := Suite{
-		Components: components,
-		archive:    &a,
+		archive:            &a,
+		PackageCollections: PackageCollections{},
 	}
 
 	suite.Pool = Pool{store: a.store, suite: &suite}
@@ -71,8 +70,8 @@ type Suite struct {
 	Label       string
 	Version     string
 
-	Components map[string]Component `control:"-"`
-	Pool       Pool                 `control:"-"`
+	PackageCollections PackageCollections `control:"-"`
+	Pool               Pool               `control:"-"`
 
 	features struct {
 		Hashes   []string
@@ -80,64 +79,23 @@ type Suite struct {
 	} `control:"-"`
 }
 
-// For a Suite, iterate over all known Components, and return a list of
-// unique architectures. Not all Components may have all these arches.
-func (s Suite) Arches() []dependency.Arch {
-	ret := map[dependency.Arch]bool{}
-	for _, component := range s.Components {
-		for _, arch := range component.Arches() {
-			ret[arch] = true
-		}
+type PackageCollections map[dependency.Arch]PackageCollection
+
+func (p PackageCollections) get(arch dependency.Arch) PackageCollection {
+	if _, ok := p[arch]; !ok {
+		p[arch] = PackageCollection{}
 	}
-	r := []dependency.Arch{}
-	for arch, _ := range ret {
-		r = append(r, arch)
-	}
-	return r
+	return p[arch]
 }
 
-func (s Suite) Component(name string) (*Component, error) {
-	if _, ok := s.Components[name]; !ok {
-		c, err := newComponent(*s.archive)
-		if err != nil {
-			return nil, err
-		}
-		s.Components[name] = *c
-	}
-	el := s.Components[name]
-	return &el, nil
-}
-
-// Return a list of unique component names.
-func (s Suite) ComponenetNames() []string {
-	ret := []string{}
-	for name, _ := range s.Components {
-		ret = append(ret, name)
-	}
-	return ret
-}
-
-func newComponent(archive Archive) (*Component, error) {
-	writer, err := archive.store.Create()
-	if err != nil {
-		return nil, err
-	}
-
-	encoder, err := control.NewEncoder(writer)
-	if err != nil {
-		return nil, err
-	}
-
-	return &Component{
-		encoder: encoder,
-		writer:  writer,
-		archive: &archive,
-	}, nil
+func (p PackageCollections) Add(pkg Package) error {
+	collection := p.get(pkg.Architecture)
+	return collection.Add(pkg)
 }
 
 // Collection of Binary Components.
 type Collections struct {
-	Collections map[dependency.Arch]PackageCollection
+	PackageCollections PackageCollections
 }
 
 // Component is a section of the Archive, which is a set of Binary packages
@@ -147,6 +105,10 @@ type PackageCollection struct {
 	encoder *control.Encoder
 	writer  *blobstore.Writer
 	archive *Archive
+}
+
+func (p PackageCollection) Add(pkg Package) error {
+	return p.encoder.Encode(pkg)
 }
 
 // vim: foldmethod=marker
