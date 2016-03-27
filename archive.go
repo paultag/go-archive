@@ -70,6 +70,8 @@ type Suite struct {
 	Label       string
 	Version     string
 
+	/* Componenet        ~= PackageCollections
+	 * Compoenent + Arch ~= PackageCollection */
 	PackageCollections map[string]PackageCollections `control:"-"`
 	Pool               Pool                          `control:"-"`
 
