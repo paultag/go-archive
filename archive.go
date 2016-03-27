@@ -70,8 +70,8 @@ type Suite struct {
 	Label       string
 	Version     string
 
-	PackageCollections PackageCollections `control:"-"`
-	Pool               Pool               `control:"-"`
+	PackageCollections map[string]PackageCollections `control:"-"`
+	Pool               Pool                          `control:"-"`
 
 	features struct {
 		Hashes   []string
@@ -91,11 +91,6 @@ func (p PackageCollections) get(arch dependency.Arch) PackageCollection {
 func (p PackageCollections) Add(pkg Package) error {
 	collection := p.get(pkg.Architecture)
 	return collection.Add(pkg)
-}
-
-// Collection of Binary Components.
-type Collections struct {
-	PackageCollections PackageCollections
 }
 
 // Component is a section of the Archive, which is a set of Binary packages
