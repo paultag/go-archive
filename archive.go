@@ -44,7 +44,7 @@ func (a Archive) Suite(name string) (*Suite, error) {
 	/* Get the Release / InRelease */
 	suite := Suite{
 		archive:            &a,
-		PackageCollections: PackageCollections{},
+		packageCollections: map[string]PackageCollections{},
 	}
 
 	suite.Pool = Pool{store: a.store, suite: &suite}
@@ -72,13 +72,20 @@ type Suite struct {
 
 	/* Componenet        ~= PackageCollections
 	 * Compoenent + Arch ~= PackageCollection */
-	PackageCollections map[string]PackageCollections `control:"-"`
+	packageCollections map[string]PackageCollections `control:"-"`
 	Pool               Pool                          `control:"-"`
 
 	features struct {
 		Hashes   []string
 		Duration string
 	} `control:"-"`
+}
+
+func (s Suite) PackageCollections(name string) PackageCollections {
+	if _, ok := s.packageCollections[name]; !ok {
+		s.packageCollections[name] = PackageCollections{}
+	}
+	return s.packageCollections[name]
 }
 
 type PackageCollections map[dependency.Arch]PackageCollection
