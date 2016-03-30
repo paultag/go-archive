@@ -1,6 +1,11 @@
 package archive
 
 import (
+	"fmt"
+	"io"
+	"path"
+	"time"
+
 	"golang.org/x/crypto/openpgp"
 
 	"pault.ag/go/blobstore"
@@ -34,17 +39,10 @@ type Archive struct {
 	signingKey *openpgp.Entity
 }
 
-// Get a Suite for a given Archive. Information will be loaded from the
-// InRelease file (if it exists) into the Suite object.
-//
-// The Suite object contains neat abstractions such as Components, and a
-// number of helpers to collection information across all components, such
-// as the `Arches()` helper.
 func (a Archive) Suite(name string) (*Suite, error) {
-	/* Get the Release / InRelease */
 	suite := Suite{
-		archive:            &a,
-		packageCollections: map[string]PackageCollections{},
+		archive:    &a,
+		components: map[string]Component{},
 	}
 
 	suite.Pool = Pool{store: a.store, suite: &suite}
@@ -59,6 +57,62 @@ func (a Archive) Decruft() error {
 	return a.store.GC(blobstore.DumbGarbageCollector{})
 }
 
+func (a Archive) Link(blobs map[string]blobstore.Object) error {
+	for path, obj := range blobs {
+		if err := a.store.Link(obj, path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (suite Suite) newRelease() Release {
+	when := time.Now()
+	release := Release{
+		Suite:       suite.Name,
+		Description: suite.Description,
+		Origin:      suite.Origin,
+		Label:       suite.Label,
+		Version:     suite.Version,
+	}
+	release.Date = when.Format(time.RFC1123Z)
+	release.Architectures = []dependency.Arch{}
+	release.Components = []string{}
+	release.SHA256 = []control.SHA256FileHash{}
+	release.SHA1 = []control.SHA1FileHash{}
+	release.SHA512 = []control.SHA512FileHash{}
+	release.MD5Sum = []control.MD5FileHash{}
+	return release
+}
+
+//
+func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
+	// release := suite.newRelease()
+
+	files := map[string]blobstore.Object{}
+
+	for name, component := range suite.components {
+		for arch, writer := range component.packageWriters {
+
+			suitePath := path.Join(name, fmt.Sprintf("binary-%s", arch),
+				"Packages")
+
+			obj, err := a.store.Commit(*writer.handle)
+			if err != nil {
+				return nil, err
+			}
+
+			filePath := path.Join("dists", suite.Name, suitePath)
+			files[filePath] = *obj
+		}
+	}
+
+	/* Now, let's do some magic */
+
+	return files, nil
+}
+
+//
 type Suite struct {
 	control.Paragraph
 
@@ -70,10 +124,8 @@ type Suite struct {
 	Label       string
 	Version     string
 
-	/* Componenet        ~= PackageCollections
-	 * Compoenent + Arch ~= PackageCollection */
-	packageCollections map[string]PackageCollections `control:"-"`
-	Pool               Pool                          `control:"-"`
+	Pool       Pool                 `control:"-"`
+	components map[string]Component `control"-"`
 
 	features struct {
 		Hashes   []string
@@ -81,38 +133,90 @@ type Suite struct {
 	} `control:"-"`
 }
 
-func (s Suite) PackageCollections(name string) PackageCollections {
-	if _, ok := s.packageCollections[name]; !ok {
-		s.packageCollections[name] = PackageCollections{}
+/////////////////////////////////////////////////////////
+
+func (s Suite) Component(name string) (*Component, error) {
+	if _, ok := s.components[name]; !ok {
+		comp, err := newComponent(s.archive)
+		if err != nil {
+			return nil, err
+		}
+		s.components[name] = *comp
+		return comp, nil
 	}
-	return s.packageCollections[name]
+	el := s.components[name]
+	return &el, nil
 }
 
-type PackageCollections map[dependency.Arch]PackageCollection
+func newComponent(archive *Archive) (*Component, error) {
+	return &Component{
+		archive:        archive,
+		packageWriters: map[dependency.Arch]*PackageWriter{},
+	}, nil
+}
 
-func (p PackageCollections) get(arch dependency.Arch) PackageCollection {
-	if _, ok := p[arch]; !ok {
-		p[arch] = PackageCollection{}
+type Component struct {
+	archive        *Archive
+	packageWriters map[dependency.Arch]*PackageWriter
+	// sourceWriter *SourceWriter
+}
+
+func (c *Component) getWriter(arch dependency.Arch) (*PackageWriter, error) {
+	if _, ok := c.packageWriters[arch]; !ok {
+		writer, err := newPackageWriter(c.archive)
+		if err != nil {
+			return nil, err
+		}
+		c.packageWriters[arch] = writer
 	}
-	return p[arch]
+	return c.packageWriters[arch], nil
 }
 
-func (p PackageCollections) Add(pkg Package) error {
-	collection := p.get(pkg.Architecture)
-	return collection.Add(pkg)
+func (c *Component) AddPackage(pkg Package) error {
+	writer, err := c.getWriter(pkg.Architecture)
+	if err != nil {
+		return err
+	}
+	return writer.Add(pkg)
 }
 
-// Component is a section of the Archive, which is a set of Binary packages
-// that are provided to the end user. Debian has three major ones, `main`,
-// `contrib` and `non-free`.
-type PackageCollection struct {
-	encoder *control.Encoder
-	writer  *blobstore.Writer
+type packageWriters map[dependency.Arch]*PackageWriter
+
+func newPackageWriter(archive *Archive) (*PackageWriter, error) {
+
+	/* So, a PackageWriter is the thing we use to create a Packages entry
+	 * for a given suite/component/binary-arch */
+
+	handle, err := archive.store.Create()
+	if err != nil {
+		return nil, err
+	}
+
+	encoder, err := control.NewEncoder(handle)
+	if err != nil {
+		handle.Close()
+		return nil, err
+	}
+
+	return &PackageWriter{
+		archive: archive,
+		writer:  handle,
+		closer:  handle.Close,
+		encoder: encoder,
+		handle:  handle,
+	}, nil
+}
+
+type PackageWriter struct {
 	archive *Archive
-	/* XXX: Add a flag to ensure alpha sorted entries */
+
+	handle  *blobstore.Writer
+	writer  io.Writer
+	closer  func() error
+	encoder *control.Encoder
 }
 
-func (p PackageCollection) Add(pkg Package) error {
+func (p PackageWriter) Add(pkg Package) error {
 	return p.encoder.Encode(pkg)
 }
 
