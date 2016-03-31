@@ -6,7 +6,11 @@ import (
 	"path"
 	"time"
 
+	"crypto"
+	"crypto/sha512"
+
 	"golang.org/x/crypto/openpgp"
+	"golang.org/x/crypto/openpgp/packet"
 
 	"pault.ag/go/blobstore"
 	"pault.ag/go/debian/control"
@@ -115,29 +119,89 @@ func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
 	}
 
 	/* Now, let's do some magic */
-	fd, err := suite.archive.store.Create()
-	if err != nil {
-		return nil, err
-	}
 
-	encoder, err := control.NewEncoder(fd)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := encoder.Encode(release); err != nil {
-		return nil, err
-	}
-
-	obj, err := a.store.Commit(*fd)
+	obj, sig, err := suite.archive.encodeSigned(release)
 	if err != nil {
 		return nil, err
 	}
 
 	filePath := path.Join("dists", suite.Name, "Release")
 	files[filePath] = *obj
+	files[fmt.Sprintf("%s.gpg", filePath)] = *sig
 
 	return files, nil
+}
+
+func (a Archive) encodeSigned(data interface{}) (*blobstore.Object, *blobstore.Object, error) {
+	/* Right, so, the trick here is that we secretly call out to encode,
+	 * but tap it with a pipe into the signing code */
+
+	if a.signingKey == nil {
+		return nil, nil, fmt.Errorf("No signing key loaded")
+	}
+
+	signature, err := a.store.Create()
+	if err != nil {
+		return nil, nil, err
+	}
+	defer signature.Close()
+
+	hash := sha512.New()
+
+	obj, err := a.encode(data, hash)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	sig := new(packet.Signature)
+	sig.SigType = packet.SigTypeBinary
+	sig.PubKeyAlgo = a.signingKey.PrivateKey.PubKeyAlgo
+
+	sig.Hash = crypto.SHA512
+	fmt.Printf("%x\n", hash.Sum(nil))
+
+	sig.CreationTime = new(packet.Config).Now()
+	sig.IssuerKeyId = &(a.signingKey.PrivateKey.KeyId)
+
+	err = sig.Sign(hash, a.signingKey.PrivateKey, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if err := sig.Serialize(signature); err != nil {
+		return nil, nil, err
+	}
+
+	sigObj, err := a.store.Commit(*signature)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return obj, sigObj, nil
+
+}
+
+func (a Archive) encode(data interface{}, tap io.Writer) (*blobstore.Object, error) {
+	fd, err := a.store.Create()
+	if err != nil {
+		return nil, err
+	}
+
+	var writer io.Writer = fd
+	if tap != nil {
+		writer = io.MultiWriter(fd, tap)
+	}
+
+	encoder, err := control.NewEncoder(writer)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := encoder.Encode(data); err != nil {
+		return nil, err
+	}
+
+	return a.store.Commit(*fd)
 }
 
 //
