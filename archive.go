@@ -11,6 +11,7 @@ import (
 	"pault.ag/go/blobstore"
 	"pault.ag/go/debian/control"
 	"pault.ag/go/debian/dependency"
+	"pault.ag/go/debian/transput"
 )
 
 // Create a new Archive at the given `root` on the filesystem, with the
@@ -88,7 +89,7 @@ func (suite Suite) newRelease() Release {
 
 //
 func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
-	// release := suite.newRelease()
+	release := suite.newRelease()
 
 	files := map[string]blobstore.Object{}
 
@@ -103,12 +104,38 @@ func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
 				return nil, err
 			}
 
+			for _, hasher := range writer.hashers {
+				fileHash := control.FileHashFromHasher(suitePath, *hasher)
+				release.AddHash(fileHash)
+			}
+
 			filePath := path.Join("dists", suite.Name, suitePath)
 			files[filePath] = *obj
 		}
 	}
 
 	/* Now, let's do some magic */
+	fd, err := suite.archive.store.Create()
+	if err != nil {
+		return nil, err
+	}
+
+	encoder, err := control.NewEncoder(fd)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := encoder.Encode(release); err != nil {
+		return nil, err
+	}
+
+	obj, err := a.store.Commit(*fd)
+	if err != nil {
+		return nil, err
+	}
+
+	filePath := path.Join("dists", suite.Name, "Release")
+	files[filePath] = *obj
 
 	return files, nil
 }
@@ -138,7 +165,7 @@ type Suite struct {
 
 func (s Suite) Component(name string) (*Component, error) {
 	if _, ok := s.components[name]; !ok {
-		comp, err := newComponent(s.archive)
+		comp, err := newComponent(&s)
 		if err != nil {
 			return nil, err
 		}
@@ -149,22 +176,22 @@ func (s Suite) Component(name string) (*Component, error) {
 	return &el, nil
 }
 
-func newComponent(archive *Archive) (*Component, error) {
+func newComponent(suite *Suite) (*Component, error) {
 	return &Component{
-		archive:        archive,
+		suite:          suite,
 		packageWriters: map[dependency.Arch]*PackageWriter{},
 	}, nil
 }
 
 type Component struct {
-	archive        *Archive
+	suite          *Suite
 	packageWriters map[dependency.Arch]*PackageWriter
 	// sourceWriter *SourceWriter
 }
 
 func (c *Component) getWriter(arch dependency.Arch) (*PackageWriter, error) {
 	if _, ok := c.packageWriters[arch]; !ok {
-		writer, err := newPackageWriter(c.archive)
+		writer, err := newPackageWriter(c.suite)
 		if err != nil {
 			return nil, err
 		}
@@ -183,28 +210,36 @@ func (c *Component) AddPackage(pkg Package) error {
 
 type packageWriters map[dependency.Arch]*PackageWriter
 
-func newPackageWriter(archive *Archive) (*PackageWriter, error) {
-
-	/* So, a PackageWriter is the thing we use to create a Packages entry
-	 * for a given suite/component/binary-arch */
-
-	handle, err := archive.store.Create()
+func newPackageWriter(suite *Suite) (*PackageWriter, error) {
+	handle, err := suite.archive.store.Create()
 	if err != nil {
 		return nil, err
 	}
 
-	encoder, err := control.NewEncoder(handle)
+	hashers := []*transput.Hasher{}
+	writers := []io.Writer{handle}
+	for _, algo := range suite.features.Hashes {
+		hasher, err := transput.NewHasher(algo)
+		if err != nil {
+			handle.Close()
+			return nil, err
+		}
+		hashers = append(hashers, hasher)
+		writers = append(writers, hasher)
+	}
+
+	encoder, err := control.NewEncoder(io.MultiWriter(writers...))
 	if err != nil {
 		handle.Close()
 		return nil, err
 	}
 
 	return &PackageWriter{
-		archive: archive,
-		writer:  handle,
+		archive: suite.archive,
 		closer:  handle.Close,
 		encoder: encoder,
 		handle:  handle,
+		hashers: hashers,
 	}, nil
 }
 
@@ -212,9 +247,10 @@ type PackageWriter struct {
 	archive *Archive
 
 	handle  *blobstore.Writer
-	writer  io.Writer
 	closer  func() error
 	encoder *control.Encoder
+
+	hashers []*transput.Hasher
 }
 
 func (p PackageWriter) Add(pkg Package) error {
