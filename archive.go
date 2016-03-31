@@ -10,6 +10,7 @@ import (
 	"crypto/sha512"
 
 	"golang.org/x/crypto/openpgp"
+	"golang.org/x/crypto/openpgp/clearsign"
 	"golang.org/x/crypto/openpgp/packet"
 
 	"pault.ag/go/blobstore"
@@ -129,7 +130,47 @@ func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
 	files[filePath] = *obj
 	files[fmt.Sprintf("%s.gpg", filePath)] = *sig
 
+	obj, err = suite.archive.encodeClearsigned(release)
+	if err != nil {
+		return nil, err
+	}
+
+	files[path.Join("dists", suite.Name, "InRelease")] = *obj
+
 	return files, nil
+}
+
+func (a Archive) encodeClearsigned(data interface{}) (*blobstore.Object, error) {
+
+	if a.signingKey == nil {
+		return nil, fmt.Errorf("No signing key loaded")
+	}
+
+	fd, err := a.store.Create()
+	if err != nil {
+		return nil, err
+	}
+
+	defer fd.Close()
+	wc, err := clearsign.Encode(fd, a.signingKey.PrivateKey, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	encoder, err := control.NewEncoder(wc)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := encoder.Encode(data); err != nil {
+		return nil, err
+	}
+
+	if err := wc.Close(); err != nil {
+		return nil, err
+	}
+
+	return a.store.Commit(*fd)
 }
 
 func (a Archive) encodeSigned(data interface{}) (*blobstore.Object, *blobstore.Object, error) {
