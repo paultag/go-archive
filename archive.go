@@ -53,8 +53,8 @@ func (a Archive) Suite(name string) (*Suite, error) {
 	}
 
 	suite.Pool = Pool{store: a.store, suite: &suite}
-	suite.features.Hashes = []string{"sha256", "sha1"}
-	// suite.features.Duration = "24h"
+	suite.features.Hashes = []string{"sha256", "sha1", "sha512"}
+	suite.features.Duration = "240h"
 
 	return &suite, nil
 }
@@ -73,11 +73,22 @@ func (a Archive) Link(blobs map[string]blobstore.Object) error {
 	return nil
 }
 
-func (suite Suite) newRelease() Release {
+func (suite Suite) newRelease() (*Release, error) {
 	when := time.Now()
+
+	var validUntil string = ""
+	if suite.features.Duration != "" {
+		duration, err := time.ParseDuration(suite.features.Duration)
+		if err != nil {
+			return nil, err
+		}
+		validUntil = when.Add(duration).Format(time.RFC1123Z)
+	}
+
 	release := Release{
 		Suite:       suite.Name,
 		Description: suite.Description,
+		ValidUntil:  validUntil,
 		Origin:      suite.Origin,
 		Label:       suite.Label,
 		Version:     suite.Version,
@@ -89,17 +100,24 @@ func (suite Suite) newRelease() Release {
 	release.SHA1 = []control.SHA1FileHash{}
 	release.SHA512 = []control.SHA512FileHash{}
 	release.MD5Sum = []control.MD5FileHash{}
-	return release
+	return &release, nil
 }
 
 //
 func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
-	release := suite.newRelease()
+	release, err := suite.newRelease()
+	if err != nil {
+		return nil, err
+	}
 
 	files := map[string]blobstore.Object{}
+	arches := map[dependency.Arch]bool{}
 
 	for name, component := range suite.components {
+		release.Components = append(release.Components, name)
+
 		for arch, writer := range component.packageWriters {
+			arches[arch] = true
 
 			suitePath := path.Join(name, fmt.Sprintf("binary-%s", arch),
 				"Packages")
@@ -117,6 +135,10 @@ func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
 			filePath := path.Join("dists", suite.Name, suitePath)
 			files[filePath] = *obj
 		}
+	}
+
+	for arch, _ := range arches {
+		release.Architectures = append(release.Architectures, arch)
 	}
 
 	/* Now, let's do some magic */
