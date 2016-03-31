@@ -41,6 +41,7 @@ type Archive struct {
 
 func (a Archive) Suite(name string) (*Suite, error) {
 	suite := Suite{
+		Name:       name,
 		archive:    &a,
 		components: map[string]Component{},
 	}
