@@ -85,7 +85,7 @@ func (a Archive) Link(blobs map[string]blobstore.Object) error {
 // and constructing the rest of the goodies.
 //
 // This will be an entirely empty object, without anything read off disk.
-func (suite Suite) newRelease() (*Release, error) {
+func newRelease(suite Suite) (*Release, error) {
 	when := time.Now()
 
 	var validUntil string = ""
@@ -121,7 +121,7 @@ func (suite Suite) newRelease() (*Release, error) {
 //
 // This will contain all the related Packages and Release files.
 func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
-	release, err := suite.newRelease()
+	release, err := newRelease(suite)
 	if err != nil {
 		return nil, err
 	}
@@ -295,7 +295,10 @@ func (a Archive) encode(data interface{}, tap io.Writer) (*blobstore.Object, err
 	return a.store.Commit(*fd)
 }
 
-// Abstraction to handle writing data into a Suite.
+// Abstraction to handle writing data into a Suite. This is a write-only
+// target, and is not intended to read a Release file.
+//
+// This contains no state read off disk, and is purely for writing to.
 type Suite struct {
 	control.Paragraph
 
@@ -308,7 +311,7 @@ type Suite struct {
 	Version     string
 
 	Pool       Pool                 `control:"-"`
-	components map[string]Component `control"-"`
+	components map[string]Component `control:"-"`
 
 	features struct {
 		Hashes   []string
@@ -316,6 +319,11 @@ type Suite struct {
 	} `control:"-"`
 }
 
+// Get or create a Component for a given Suite. If no such Component
+// has been created so far, this will create a new object, otherwise
+// it will return the existing entry.
+//
+// This contains no state read off disk, and is purely for writing to.
 func (s Suite) Component(name string) (*Component, error) {
 	if _, ok := s.components[name]; !ok {
 		comp, err := newComponent(&s)
@@ -329,6 +337,7 @@ func (s Suite) Component(name string) (*Component, error) {
 	return &el, nil
 }
 
+// Create a new Component, configured for use.
 func newComponent(suite *Suite) (*Component, error) {
 	return &Component{
 		suite:          suite,
@@ -336,12 +345,17 @@ func newComponent(suite *Suite) (*Component, error) {
 	}, nil
 }
 
+// Small wrapper to represent a Component of a Suite, which, at its core
+// is simply a set of Indexes to be written to.
+//
+// This contains no state read off disk, and is purely for writing to.
 type Component struct {
 	suite          *Suite
 	packageWriters map[dependency.Arch]*PackageWriter
 	// sourceWriter *SourceWriter
 }
 
+// Get a given PackageWriter for an arch, or create one if none exists.
 func (c *Component) getWriter(arch dependency.Arch) (*PackageWriter, error) {
 	if _, ok := c.packageWriters[arch]; !ok {
 		writer, err := newPackageWriter(c.suite)
@@ -353,6 +367,9 @@ func (c *Component) getWriter(arch dependency.Arch) (*PackageWriter, error) {
 	return c.packageWriters[arch], nil
 }
 
+// Add a given Package to a Package List. Under the hood, this will
+// get or create a PackageWriter, and invoke the .Add method on the
+// Package Writer.
 func (c *Component) AddPackage(pkg Package) error {
 	writer, err := c.getWriter(pkg.Architecture)
 	if err != nil {
@@ -361,8 +378,9 @@ func (c *Component) AddPackage(pkg Package) error {
 	return writer.Add(pkg)
 }
 
-type packageWriters map[dependency.Arch]*PackageWriter
-
+// given a Suite, create a new Package Writer, configured with
+// the appropriate Hashing, and targeting a new file blob in the
+// underlying blobstore.
 func newPackageWriter(suite *Suite) (*PackageWriter, error) {
 	handle, err := suite.archive.store.Create()
 	if err != nil {
@@ -396,6 +414,12 @@ func newPackageWriter(suite *Suite) (*PackageWriter, error) {
 	}, nil
 }
 
+// This writer represents a Package list - which is to say, a list of
+// binary .deb files, for a particular Architecture, in a particular Component
+// in a particular Suite, in a particular Archive.
+//
+// This is not an encapsulation to store the entire Index in memory, rather,
+// it's a wrapper to help write Package entries into the Index.
 type PackageWriter struct {
 	archive *Archive
 
@@ -406,6 +430,7 @@ type PackageWriter struct {
 	hashers []*transput.Hasher
 }
 
+// Write a Package entry into the Packages index.
 func (p PackageWriter) Add(pkg Package) error {
 	return p.encoder.Encode(pkg)
 }
