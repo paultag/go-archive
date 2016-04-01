@@ -19,6 +19,15 @@ import (
 	"pault.ag/go/debian/transput"
 )
 
+// Archive {{{
+
+// Core Archive abstrcation. This contains helpers to write out package files,
+// as well as handles creating underlying abstractions (such as Suites).
+type Archive struct {
+	store      blobstore.Store
+	signingKey *openpgp.Entity
+}
+
 // Create a new Archive at the given `root` on the filesystem, with the
 // openpgp.Entity `signer` (an Entity which contains an OpenPGP Private
 // Key).
@@ -36,30 +45,6 @@ func New(path string, signer *openpgp.Entity) (*Archive, error) {
 		store:      *store,
 		signingKey: signer,
 	}, nil
-}
-
-// Core Archive abstrcation. This contains helpers to write out package files,
-// as well as handles creating underlying abstractions (such as Suites).
-type Archive struct {
-	store      blobstore.Store
-	signingKey *openpgp.Entity
-}
-
-// Get a handle to write a given Suite from an Archive.
-// The suite will be entirely blank, and attributes will not be
-// read from the existing files, if any.
-func (a Archive) Suite(name string) (*Suite, error) {
-	suite := Suite{
-		Name:       name,
-		archive:    &a,
-		components: map[string]Component{},
-	}
-
-	suite.Pool = Pool{store: a.store, suite: &suite}
-	suite.features.Hashes = []string{"sha256", "sha1", "sha512"}
-	suite.features.Duration = "240h"
-
-	return &suite, nil
 }
 
 // Use the default backend to remove any unlinked files from the Blob store.
@@ -295,6 +280,10 @@ func (a Archive) encode(data interface{}, tap io.Writer) (*blobstore.Object, err
 	return a.store.Commit(*fd)
 }
 
+// }}}
+
+// Suite {{{
+
 // Abstraction to handle writing data into a Suite. This is a write-only
 // target, and is not intended to read a Release file.
 //
@@ -319,6 +308,23 @@ type Suite struct {
 	} `control:"-"`
 }
 
+// Get a handle to write a given Suite from an Archive.
+// The suite will be entirely blank, and attributes will not be
+// read from the existing files, if any.
+func (a Archive) Suite(name string) (*Suite, error) {
+	suite := Suite{
+		Name:       name,
+		archive:    &a,
+		components: map[string]Component{},
+	}
+
+	suite.Pool = Pool{store: a.store, suite: &suite}
+	suite.features.Hashes = []string{"sha256", "sha1", "sha512"}
+	suite.features.Duration = "240h"
+
+	return &suite, nil
+}
+
 // Get or create a Component for a given Suite. If no such Component
 // has been created so far, this will create a new object, otherwise
 // it will return the existing entry.
@@ -337,13 +343,9 @@ func (s Suite) Component(name string) (*Component, error) {
 	return &el, nil
 }
 
-// Create a new Component, configured for use.
-func newComponent(suite *Suite) (*Component, error) {
-	return &Component{
-		suite:          suite,
-		packageWriters: map[dependency.Arch]*PackageWriter{},
-	}, nil
-}
+// }}}
+
+// Component {{{
 
 // Small wrapper to represent a Component of a Suite, which, at its core
 // is simply a set of Indexes to be written to.
@@ -353,6 +355,14 @@ type Component struct {
 	suite          *Suite
 	packageWriters map[dependency.Arch]*PackageWriter
 	// sourceWriter *SourceWriter
+}
+
+// Create a new Component, configured for use.
+func newComponent(suite *Suite) (*Component, error) {
+	return &Component{
+		suite:          suite,
+		packageWriters: map[dependency.Arch]*PackageWriter{},
+	}, nil
 }
 
 // Get a given PackageWriter for an arch, or create one if none exists.
@@ -376,6 +386,26 @@ func (c *Component) AddPackage(pkg Package) error {
 		return err
 	}
 	return writer.Add(pkg)
+}
+
+// }}}
+
+// PackageWriter {{{
+
+// This writer represents a Package list - which is to say, a list of
+// binary .deb files, for a particular Architecture, in a particular Component
+// in a particular Suite, in a particular Archive.
+//
+// This is not an encapsulation to store the entire Index in memory, rather,
+// it's a wrapper to help write Package entries into the Index.
+type PackageWriter struct {
+	archive *Archive
+
+	handle  *blobstore.Writer
+	closer  func() error
+	encoder *control.Encoder
+
+	hashers []*transput.Hasher
 }
 
 // given a Suite, create a new Package Writer, configured with
@@ -414,25 +444,11 @@ func newPackageWriter(suite *Suite) (*PackageWriter, error) {
 	}, nil
 }
 
-// This writer represents a Package list - which is to say, a list of
-// binary .deb files, for a particular Architecture, in a particular Component
-// in a particular Suite, in a particular Archive.
-//
-// This is not an encapsulation to store the entire Index in memory, rather,
-// it's a wrapper to help write Package entries into the Index.
-type PackageWriter struct {
-	archive *Archive
-
-	handle  *blobstore.Writer
-	closer  func() error
-	encoder *control.Encoder
-
-	hashers []*transput.Hasher
-}
-
 // Write a Package entry into the Packages index.
 func (p PackageWriter) Add(pkg Package) error {
 	return p.encoder.Encode(pkg)
 }
+
+// }}}
 
 // vim: foldmethod=marker
