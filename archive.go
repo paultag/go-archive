@@ -45,6 +45,9 @@ type Archive struct {
 	signingKey *openpgp.Entity
 }
 
+// Get a handle to write a given Suite from an Archive.
+// The suite will be entirely blank, and attributes will not be
+// read from the existing files, if any.
 func (a Archive) Suite(name string) (*Suite, error) {
 	suite := Suite{
 		Name:       name,
@@ -60,10 +63,15 @@ func (a Archive) Suite(name string) (*Suite, error) {
 }
 
 // Use the default backend to remove any unlinked files from the Blob store.
+//
+// If files you care about are not linked onto the stage, they will be removed
+// by the garbage collector. Decruft only when you're sure the stage has been
+// set.
 func (a Archive) Decruft() error {
 	return a.store.GC(blobstore.DumbGarbageCollector{})
 }
 
+// Given a list of objects, link them to the keyed paths.
 func (a Archive) Link(blobs map[string]blobstore.Object) error {
 	for path, obj := range blobs {
 		if err := a.store.Link(obj, path); err != nil {
@@ -73,6 +81,10 @@ func (a Archive) Link(blobs map[string]blobstore.Object) error {
 	return nil
 }
 
+// Create a new Release object from a Suite, passing off the Name, Description
+// and constructing the rest of the goodies.
+//
+// This will be an entirely empty object, without anything read off disk.
 func (suite Suite) newRelease() (*Release, error) {
 	when := time.Now()
 
@@ -103,7 +115,11 @@ func (suite Suite) newRelease() (*Release, error) {
 	return &release, nil
 }
 
+// Engross a Suite for signing and final commit into the blobstore. This
+// will return handle(s) to the signed and ready Objects, fit for passage
+// to Link.
 //
+// This will contain all the related Packages and Release files.
 func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
 	release, err := suite.newRelease()
 	if err != nil {
@@ -162,6 +178,8 @@ func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
 	return files, nil
 }
 
+// Given a control.Marshal'able object, encode it to the blobstore, while
+// also clearsigning the data.
 func (a Archive) encodeClearsigned(data interface{}) (*blobstore.Object, error) {
 
 	if a.signingKey == nil {
@@ -195,6 +213,10 @@ func (a Archive) encodeClearsigned(data interface{}) (*blobstore.Object, error) 
 	return a.store.Commit(*fd)
 }
 
+// Given a control.Marshal'able object, encode it to the blobstore, while
+// also doing a detached OpenPGP signature. The objects returned (in order)
+// are data, commited to the blobstore, the signature for that object, commited
+// to the blobstore, and any error(s), finally.
 func (a Archive) encodeSigned(data interface{}) (*blobstore.Object, *blobstore.Object, error) {
 	/* Right, so, the trick here is that we secretly call out to encode,
 	 * but tap it with a pipe into the signing code */
@@ -244,6 +266,12 @@ func (a Archive) encodeSigned(data interface{}) (*blobstore.Object, *blobstore.O
 
 }
 
+// Encode a given control.Marshal'able object into the Blobstore, and return
+// a handle to its object.
+//
+// The optinal argument `tap` will be written to as the object gets sent into
+// the blobstore. This may be useful if you wish to have a copy of the data
+// going into the store.
 func (a Archive) encode(data interface{}, tap io.Writer) (*blobstore.Object, error) {
 	fd, err := a.store.Create()
 	if err != nil {
@@ -267,7 +295,7 @@ func (a Archive) encode(data interface{}, tap io.Writer) (*blobstore.Object, err
 	return a.store.Commit(*fd)
 }
 
-//
+// Abstraction to handle writing data into a Suite.
 type Suite struct {
 	control.Paragraph
 
@@ -287,8 +315,6 @@ type Suite struct {
 		Duration string
 	} `control:"-"`
 }
-
-/////////////////////////////////////////////////////////
 
 func (s Suite) Component(name string) (*Component, error) {
 	if _, ok := s.components[name]; !ok {
