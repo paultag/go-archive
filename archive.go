@@ -228,7 +228,6 @@ func (a Archive) encodeSigned(data interface{}) (*blobstore.Object, *blobstore.O
 	sig.PubKeyAlgo = a.signingKey.PrivateKey.PubKeyAlgo
 
 	sig.Hash = crypto.SHA512
-	fmt.Printf("%x\n", hash.Sum(nil))
 
 	sig.CreationTime = new(packet.Config).Now()
 	sig.IssuerKeyId = &(a.signingKey.PrivateKey.KeyId)
