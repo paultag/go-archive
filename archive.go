@@ -10,6 +10,7 @@ import (
 	"crypto/sha512"
 
 	"golang.org/x/crypto/openpgp"
+	"golang.org/x/crypto/openpgp/clearsign"
 	"golang.org/x/crypto/openpgp/packet"
 
 	"pault.ag/go/blobstore"
@@ -17,8 +18,6 @@ import (
 	"pault.ag/go/debian/dependency"
 	"pault.ag/go/debian/transput"
 )
-
-// New {{{
 
 // Create a new Archive at the given `root` on the filesystem, with the
 // openpgp.Entity `signer` (an Entity which contains an OpenPGP Private
@@ -39,10 +38,6 @@ func New(path string, signer *openpgp.Entity) (*Archive, error) {
 	}, nil
 }
 
-// }}}
-
-// Archive magic {{{
-
 // Core Archive abstrcation. This contains helpers to write out package files,
 // as well as handles creating underlying abstractions (such as Suites).
 type Archive struct {
@@ -50,85 +45,182 @@ type Archive struct {
 	signingKey *openpgp.Entity
 }
 
-// Suite {{{
-
-// Get a Suite for a given Archive. Information will be loaded from the
-// InRelease file (if it exists) into the Suite object.
-//
-// The Suite object contains neat abstractions such as Components, and a
-// number of helpers to collection information across all components, such
-// as the `Arches()` helper.
+// Get a handle to write a given Suite from an Archive.
+// The suite will be entirely blank, and attributes will not be
+// read from the existing files, if any.
 func (a Archive) Suite(name string) (*Suite, error) {
-	/* Get the Release / InRelease */
-	components := map[string]*Component{}
-	suite := Suite{Components: components}
+	suite := Suite{
+		Name:       name,
+		archive:    &a,
+		components: map[string]Component{},
+	}
 
 	suite.Pool = Pool{store: a.store, suite: &suite}
-	suite.features.Hashes = []string{"sha256", "sha1"}
-	// suite.features.Duration = "24h"
+	suite.features.Hashes = []string{"sha256", "sha1", "sha512"}
+	suite.features.Duration = "240h"
 
 	return &suite, nil
 }
 
-// }}}
+// Use the default backend to remove any unlinked files from the Blob store.
+//
+// If files you care about are not linked onto the stage, they will be removed
+// by the garbage collector. Decruft only when you're sure the stage has been
+// set.
+func (a Archive) Decruft() error {
+	return a.store.GC(blobstore.DumbGarbageCollector{})
+}
 
-// Encoders {{{
-
-// Encode (Hashed (from a Suite)) {{{
-
-func (a Archive) encodeHashedBySuite(
-	path string,
-	suite Suite,
-	data interface{},
-) (*blobstore.Object, []control.FileHash, error) {
-
-	hashers := []*transput.Hasher{}
-	for _, algorithm := range suite.features.Hashes {
-		hasher, err := transput.NewHasher(algorithm)
-		if err != nil {
-			return nil, nil, err
+// Given a list of objects, link them to the keyed paths.
+func (a Archive) Link(blobs map[string]blobstore.Object) error {
+	for path, obj := range blobs {
+		if err := a.store.Link(obj, path); err != nil {
+			return err
 		}
-		hashers = append(hashers, hasher)
 	}
-
-	return a.encodeHashed(path, hashers, data)
+	return nil
 }
 
-// }}}
+// Create a new Release object from a Suite, passing off the Name, Description
+// and constructing the rest of the goodies.
+//
+// This will be an entirely empty object, without anything read off disk.
+func newRelease(suite Suite) (*Release, error) {
+	when := time.Now()
 
-// Encode (Hashed) {{{
-
-func (a Archive) encodeHashed(
-	path string,
-	hashers []*transput.Hasher,
-	data interface{},
-) (*blobstore.Object, []control.FileHash, error) {
-
-	writers := []io.Writer{}
-	for _, hasher := range hashers {
-		writers = append(writers, hasher)
+	var validUntil string = ""
+	if suite.features.Duration != "" {
+		duration, err := time.ParseDuration(suite.features.Duration)
+		if err != nil {
+			return nil, err
+		}
+		validUntil = when.Add(duration).Format(time.RFC1123Z)
 	}
 
-	obj, err := a.encode(data, io.MultiWriter(writers...))
+	release := Release{
+		Suite:       suite.Name,
+		Description: suite.Description,
+		ValidUntil:  validUntil,
+		Origin:      suite.Origin,
+		Label:       suite.Label,
+		Version:     suite.Version,
+	}
+	release.Date = when.Format(time.RFC1123Z)
+	release.Architectures = []dependency.Arch{}
+	release.Components = []string{}
+	release.SHA256 = []control.SHA256FileHash{}
+	release.SHA1 = []control.SHA1FileHash{}
+	release.SHA512 = []control.SHA512FileHash{}
+	release.MD5Sum = []control.MD5FileHash{}
+	return &release, nil
+}
+
+// Engross a Suite for signing and final commit into the blobstore. This
+// will return handle(s) to the signed and ready Objects, fit for passage
+// to Link.
+//
+// This will contain all the related Packages and Release files.
+func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
+	release, err := newRelease(suite)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	fileHashs := []control.FileHash{}
-	for _, hasher := range hashers {
-		fileHashs = append(fileHashs, control.FileHashFromHasher(path, *hasher))
+	files := map[string]blobstore.Object{}
+	arches := map[dependency.Arch]bool{}
+
+	for name, component := range suite.components {
+		release.Components = append(release.Components, name)
+
+		for arch, writer := range component.packageWriters {
+			arches[arch] = true
+
+			suitePath := path.Join(name, fmt.Sprintf("binary-%s", arch),
+				"Packages")
+
+			obj, err := a.store.Commit(*writer.handle)
+			if err != nil {
+				return nil, err
+			}
+
+			for _, hasher := range writer.hashers {
+				fileHash := control.FileHashFromHasher(suitePath, *hasher)
+				release.AddHash(fileHash)
+			}
+
+			filePath := path.Join("dists", suite.Name, suitePath)
+			files[filePath] = *obj
+		}
 	}
 
-	return obj, fileHashs, nil
+	for arch, _ := range arches {
+		release.Architectures = append(release.Architectures, arch)
+	}
+
+	/* Now, let's do some magic */
+
+	obj, sig, err := suite.archive.encodeSigned(release)
+	if err != nil {
+		return nil, err
+	}
+
+	filePath := path.Join("dists", suite.Name, "Release")
+	files[filePath] = *obj
+	files[fmt.Sprintf("%s.gpg", filePath)] = *sig
+
+	obj, err = suite.archive.encodeClearsigned(release)
+	if err != nil {
+		return nil, err
+	}
+
+	files[path.Join("dists", suite.Name, "InRelease")] = *obj
+
+	return files, nil
 }
 
-// }}}
+// Given a control.Marshal'able object, encode it to the blobstore, while
+// also clearsigning the data.
+func (a Archive) encodeClearsigned(data interface{}) (*blobstore.Object, error) {
 
-// Encode (Signed) {{{
+	if a.signingKey == nil {
+		return nil, fmt.Errorf("No signing key loaded")
+	}
 
-func (a Archive) encodeSigned(
-	data interface{},
-) (*blobstore.Object, *blobstore.Object, error) {
+	fd, err := a.store.Create()
+	if err != nil {
+		return nil, err
+	}
+
+	defer fd.Close()
+	wc, err := clearsign.Encode(fd, a.signingKey.PrivateKey, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	encoder, err := control.NewEncoder(wc)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := encoder.Encode(data); err != nil {
+		return nil, err
+	}
+
+	if err := wc.Close(); err != nil {
+		return nil, err
+	}
+
+	return a.store.Commit(*fd)
+}
+
+// Given a control.Marshal'able object, encode it to the blobstore, while
+// also doing a detached OpenPGP signature. The objects returned (in order)
+// are data, commited to the blobstore, the signature for that object, commited
+// to the blobstore, and any error(s), finally.
+func (a Archive) encodeSigned(data interface{}) (*blobstore.Object, *blobstore.Object, error) {
+	/* Right, so, the trick here is that we secretly call out to encode,
+	 * but tap it with a pipe into the signing code */
+
 	if a.signingKey == nil {
 		return nil, nil, fmt.Errorf("No signing key loaded")
 	}
@@ -151,6 +243,7 @@ func (a Archive) encodeSigned(
 	sig.PubKeyAlgo = a.signingKey.PrivateKey.PubKeyAlgo
 
 	sig.Hash = crypto.SHA512
+	fmt.Printf("%x\n", hash.Sum(nil))
 
 	sig.CreationTime = new(packet.Config).Now()
 	sig.IssuerKeyId = &(a.signingKey.PrivateKey.KeyId)
@@ -170,25 +263,27 @@ func (a Archive) encodeSigned(
 	}
 
 	return obj, sigObj, nil
+
 }
 
-// }}}
-
-// Encode {{{
-
-func (a Archive) encode(data interface{}, tee io.Writer) (*blobstore.Object, error) {
-	writer, err := a.store.Create()
+// Encode a given control.Marshal'able object into the Blobstore, and return
+// a handle to its object.
+//
+// The optinal argument `tap` will be written to as the object gets sent into
+// the blobstore. This may be useful if you wish to have a copy of the data
+// going into the store.
+func (a Archive) encode(data interface{}, tap io.Writer) (*blobstore.Object, error) {
+	fd, err := a.store.Create()
 	if err != nil {
 		return nil, err
 	}
-	defer writer.Close()
 
-	var target io.Writer = writer
-	if tee != nil {
-		target = io.MultiWriter(writer, tee)
+	var writer io.Writer = fd
+	if tap != nil {
+		writer = io.MultiWriter(fd, tap)
 	}
 
-	encoder, err := control.NewEncoder(target)
+	encoder, err := control.NewEncoder(writer)
 	if err != nil {
 		return nil, err
 	}
@@ -197,127 +292,17 @@ func (a Archive) encode(data interface{}, tee io.Writer) (*blobstore.Object, err
 		return nil, err
 	}
 
-	obj, err := a.store.Commit(*writer)
-	if err != nil {
-		return nil, err
-	}
-
-	return obj, nil
+	return a.store.Commit(*fd)
 }
 
-// }}}
-
-// }}}
-
-// Engross {{{
-
-// Given a fully formed (and modified!) Suite object, go ahead and Engross
-// the object to the Archive blobstore.
+// Abstraction to handle writing data into a Suite. This is a write-only
+// target, and is not intended to read a Release file.
 //
-// This call will return a map of paths to blobs, which can be passed to
-// `Link` to swap all files in at once. Simply Engrossing the Suite won't
-// actually publish it.
-func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
-	files := map[string]blobstore.Object{}
-	when := time.Now()
-
-	validUntil := ""
-	if suite.features.Duration != "" {
-		duration, err := time.ParseDuration(suite.features.Duration)
-		if err != nil {
-			return nil, err
-		}
-		validUntil = when.Add(duration).Format(time.RFC1123Z)
-	}
-
-	paragraph, err := control.ConvertToParagraph(&suite)
-	if err != nil {
-		return nil, err
-	}
-
-	release := Release{}
-
-	if err := control.UnpackFromParagraph(*paragraph, &release); err != nil {
-		return nil, err
-	}
-
-	release.Date = when.Format(time.RFC1123Z)
-	release.ValidUntil = validUntil
-	release.Architectures = suite.Arches()
-	release.Components = suite.ComponenetNames()
-	release.ValidUntil = validUntil
-
-	release.SHA256 = []control.SHA256FileHash{}
-	release.SHA1 = []control.SHA1FileHash{}
-	release.SHA512 = []control.SHA512FileHash{}
-	release.MD5Sum = []control.MD5FileHash{}
-
-	for name, component := range suite.Components {
-		for arch, pkgs := range component.ByArch() {
-			suitePath := path.Join(name, fmt.Sprintf("binary-%s", arch),
-				"Packages")
-			filePath := path.Join("dists", suite.Name, suitePath)
-
-			obj, hashes, err := a.encodeHashedBySuite(suitePath, suite, pkgs)
-			if err != nil {
-				return nil, err
-			}
-
-			for _, hash := range hashes {
-				if err := release.AddHash(hash); err != nil {
-					return nil, err
-				}
-			}
-
-			files[filePath] = *obj
-		}
-	}
-
-	filePath := path.Join("dists", suite.Name, "Release")
-	obj, sig, err := a.encodeSigned(release)
-	if err != nil {
-		return nil, err
-	}
-	files[filePath] = *obj
-	files[fmt.Sprintf("%s.gpg", filePath)] = *sig
-
-	return files, nil
-}
-
-// }}}
-
-// Link {{{
-
-// Given a mapping of paths to Objects, link all of those objects
-// into the Archive. Objects, after Engrossed, are stored in the
-// blobstore, but won't be actually published until they're linked
-// into place.
-func (a Archive) Link(blobs map[string]blobstore.Object) error {
-	for p, obj := range blobs {
-		if err := a.store.Link(obj, p); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// }}}
-
-// Decruft {{{
-
-// Use the default backend to remove any unlinked files from the Blob store.
-func (a Archive) Decruft() error {
-	return a.store.GC(blobstore.DumbGarbageCollector{})
-}
-
-// }}}
-
-// }}}
-
-// Suite magic {{{
-
+// This contains no state read off disk, and is purely for writing to.
 type Suite struct {
 	control.Paragraph
+
+	archive *Archive
 
 	Name        string `control:"Suite"`
 	Description string
@@ -325,8 +310,8 @@ type Suite struct {
 	Label       string
 	Version     string
 
-	Components map[string]*Component `control:"-"`
-	Pool       Pool                  `control:"-"`
+	Pool       Pool                 `control:"-"`
+	components map[string]Component `control:"-"`
 
 	features struct {
 		Hashes   []string
@@ -334,102 +319,120 @@ type Suite struct {
 	} `control:"-"`
 }
 
-// Arches {{{
-
-// For a Suite, iterate over all known Components, and return a list of
-// unique architectures. Not all Components may have all these arches.
-func (s Suite) Arches() []dependency.Arch {
-	ret := map[dependency.Arch]bool{}
-	for _, component := range s.Components {
-		for _, arch := range component.Arches() {
-			ret[arch] = true
+// Get or create a Component for a given Suite. If no such Component
+// has been created so far, this will create a new object, otherwise
+// it will return the existing entry.
+//
+// This contains no state read off disk, and is purely for writing to.
+func (s Suite) Component(name string) (*Component, error) {
+	if _, ok := s.components[name]; !ok {
+		comp, err := newComponent(&s)
+		if err != nil {
+			return nil, err
 		}
+		s.components[name] = *comp
+		return comp, nil
 	}
-	r := []dependency.Arch{}
-	for arch, _ := range ret {
-		r = append(r, arch)
-	}
-	return r
+	el := s.components[name]
+	return &el, nil
 }
 
-// }}}
-
-// ComponenetNames {{{
-
-// Return a list of unique component names.
-func (s Suite) ComponenetNames() []string {
-	ret := []string{}
-	for name, _ := range s.Components {
-		ret = append(ret, name)
-	}
-	return ret
+// Create a new Component, configured for use.
+func newComponent(suite *Suite) (*Component, error) {
+	return &Component{
+		suite:          suite,
+		packageWriters: map[dependency.Arch]*PackageWriter{},
+	}, nil
 }
 
-// }}}
-
-// Add {{{
-
-// Add a package `pkg` to the component `name`.
-func (s Suite) Add(name string, pkg Package) {
-	if _, ok := s.Components[name]; !ok {
-		s.Components[name] = &Component{Packages: []Package{}}
-	}
-	s.Components[name].Add(pkg)
-}
-
-// }}}
-
-// }}}
-
-// Component magic {{{
-
-// Component is a section of the Archive, which is a set of Binary packages
-// that are provided to the end user. Debian has three major ones, `main`,
-// `contrib` and `non-free`.
+// Small wrapper to represent a Component of a Suite, which, at its core
+// is simply a set of Indexes to be written to.
+//
+// This contains no state read off disk, and is purely for writing to.
 type Component struct {
-	Packages []Package
+	suite          *Suite
+	packageWriters map[dependency.Arch]*PackageWriter
+	// sourceWriter *SourceWriter
 }
 
-// ByArch {{{
+// Get a given PackageWriter for an arch, or create one if none exists.
+func (c *Component) getWriter(arch dependency.Arch) (*PackageWriter, error) {
+	if _, ok := c.packageWriters[arch]; !ok {
+		writer, err := newPackageWriter(c.suite)
+		if err != nil {
+			return nil, err
+		}
+		c.packageWriters[arch] = writer
+	}
+	return c.packageWriters[arch], nil
+}
 
-// For a Component, get a list of Packages to provide, but split them
-// into a map keyed by the Package's Arch.
-func (c *Component) ByArch() map[dependency.Arch][]Package {
-	ret := map[dependency.Arch][]Package{}
+// Add a given Package to a Package List. Under the hood, this will
+// get or create a PackageWriter, and invoke the .Add method on the
+// Package Writer.
+func (c *Component) AddPackage(pkg Package) error {
+	writer, err := c.getWriter(pkg.Architecture)
+	if err != nil {
+		return err
+	}
+	return writer.Add(pkg)
+}
 
-	for _, pkg := range c.Packages {
-		packages := ret[pkg.Architecture]
-		ret[pkg.Architecture] = append(packages, pkg)
+// given a Suite, create a new Package Writer, configured with
+// the appropriate Hashing, and targeting a new file blob in the
+// underlying blobstore.
+func newPackageWriter(suite *Suite) (*PackageWriter, error) {
+	handle, err := suite.archive.store.Create()
+	if err != nil {
+		return nil, err
 	}
 
-	return ret
-}
-
-// }}}
-
-// Arches {{{
-
-// For a Component, get the unique architectures contained in the Binary
-// packages.
-func (c *Component) Arches() []dependency.Arch {
-	ret := []dependency.Arch{}
-	for _, pkg := range c.Packages {
-		ret = append(ret, pkg.Architecture)
+	hashers := []*transput.Hasher{}
+	writers := []io.Writer{handle}
+	for _, algo := range suite.features.Hashes {
+		hasher, err := transput.NewHasher(algo)
+		if err != nil {
+			handle.Close()
+			return nil, err
+		}
+		hashers = append(hashers, hasher)
+		writers = append(writers, hasher)
 	}
-	return ret
+
+	encoder, err := control.NewEncoder(io.MultiWriter(writers...))
+	if err != nil {
+		handle.Close()
+		return nil, err
+	}
+
+	return &PackageWriter{
+		archive: suite.archive,
+		closer:  handle.Close,
+		encoder: encoder,
+		handle:  handle,
+		hashers: hashers,
+	}, nil
 }
 
-// }}}
+// This writer represents a Package list - which is to say, a list of
+// binary .deb files, for a particular Architecture, in a particular Component
+// in a particular Suite, in a particular Archive.
+//
+// This is not an encapsulation to store the entire Index in memory, rather,
+// it's a wrapper to help write Package entries into the Index.
+type PackageWriter struct {
+	archive *Archive
 
-// Add {{{
+	handle  *blobstore.Writer
+	closer  func() error
+	encoder *control.Encoder
 
-// Add a Package to the Component.
-func (c *Component) Add(p Package) {
-	c.Packages = append(c.Packages, p)
+	hashers []*transput.Hasher
 }
 
-// }}}
-
-// }}}
+// Write a Package entry into the Packages index.
+func (p PackageWriter) Add(pkg Package) error {
+	return p.encoder.Encode(pkg)
+}
 
 // vim: foldmethod=marker
