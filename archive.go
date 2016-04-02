@@ -400,7 +400,7 @@ func (c *Component) AddPackage(pkg Package) error {
 }
 
 //
-func (c *Component) AddSource(pkg control.DSC) error {
+func (c *Component) AddSource(pkg Source) error {
 	writer, err := newIndexWriter(c.suite)
 	if err != nil {
 		return err

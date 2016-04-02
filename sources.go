@@ -65,15 +65,29 @@ type Source struct {
 	Homepage         string
 	StandardsVersion string `control:"Standards-Version"`
 
-	ChecksumsSha1   []control.SHA1FileHash   `control:"Checksums-Sha1" delim:"\n" strip:"\n\r\t "`
-	ChecksumsSha256 []control.SHA256FileHash `control:"Checksums-Sha256" delim:"\n" strip:"\n\r\t "`
-	Files           []control.MD5FileHash    `control:"Files" delim:"\n" strip:"\n\r\t "`
+	ChecksumsSha1   []control.SHA1FileHash   `delim:"\n" strip:" \t\n\r" multiline:"true"`
+	ChecksumsSha256 []control.SHA256FileHash `delim:"\n" strip:" \t\n\r" multiline:"true"`
+	Files           []control.MD5FileHash    `delim:"\n" strip:" \t\n\r" multiline:"true"`
 }
 
 // Source Helpers {{{
 
 func (s Source) BuildDepends() (*dependency.Dependency, error) {
 	return dependency.Parse(s.Paragraph.Values["Build-Depends"])
+}
+
+// }}}
+
+// SourceFromDsc {{{
+
+func SourceFromDsc(dsc *control.DSC, directory string) (*Source, error) {
+	pkg := Source{}
+
+	paragraph := dsc.Paragraph
+	paragraph.Set("Directory", directory)
+	// paragraph.Set("Filename", debFile.Path)
+
+	return &pkg, control.UnpackFromParagraph(paragraph, &pkg)
 }
 
 // }}}
