@@ -117,6 +117,18 @@ func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
 	for name, component := range suite.components {
 		release.Components = append(release.Components, name)
 
+		suitePath := path.Join(name, "source", "Sources")
+		obj, err := a.store.Commit(*component.sourceWriter.handle)
+		if err != nil {
+			return nil, err
+		}
+		for _, hasher := range component.sourceWriter.hashers {
+			fileHash := control.FileHashFromHasher(suitePath, *hasher)
+			release.AddHash(fileHash)
+		}
+		filePath := path.Join("dists", suite.Name, suitePath)
+		files[filePath] = *obj
+
 		for arch, writer := range component.packageWriters {
 			arches[arch] = true
 
@@ -298,8 +310,8 @@ type Suite struct {
 	Label       string
 	Version     string
 
-	Pool       Pool                 `control:"-"`
-	components map[string]Component `control:"-"`
+	Pool       Pool                  `control:"-"`
+	components map[string]*Component `control:"-"`
 
 	features struct {
 		Hashes   []string
@@ -314,7 +326,7 @@ func (a Archive) Suite(name string) (*Suite, error) {
 	suite := Suite{
 		Name:       name,
 		archive:    &a,
-		components: map[string]Component{},
+		components: map[string]*Component{},
 	}
 
 	suite.Pool = Pool{store: a.store, suite: &suite}
@@ -335,11 +347,11 @@ func (s Suite) Component(name string) (*Component, error) {
 		if err != nil {
 			return nil, err
 		}
-		s.components[name] = *comp
+		s.components[name] = comp
 		return comp, nil
 	}
 	el := s.components[name]
-	return &el, nil
+	return el, nil
 }
 
 // }}}
@@ -352,22 +364,22 @@ func (s Suite) Component(name string) (*Component, error) {
 // This contains no state read off disk, and is purely for writing to.
 type Component struct {
 	suite          *Suite
-	packageWriters map[dependency.Arch]*PackageWriter
-	// sourceWriter *SourceWriter
+	packageWriters map[dependency.Arch]*IndexWriter
+	sourceWriter   *IndexWriter
 }
 
 // Create a new Component, configured for use.
 func newComponent(suite *Suite) (*Component, error) {
 	return &Component{
 		suite:          suite,
-		packageWriters: map[dependency.Arch]*PackageWriter{},
+		packageWriters: map[dependency.Arch]*IndexWriter{},
 	}, nil
 }
 
-// Get a given PackageWriter for an arch, or create one if none exists.
-func (c *Component) getWriter(arch dependency.Arch) (*PackageWriter, error) {
+// Get a given IndexWriter for an arch, or create one if none exists.
+func (c *Component) getWriter(arch dependency.Arch) (*IndexWriter, error) {
 	if _, ok := c.packageWriters[arch]; !ok {
-		writer, err := newPackageWriter(c.suite)
+		writer, err := newIndexWriter(c.suite)
 		if err != nil {
 			return nil, err
 		}
@@ -377,7 +389,7 @@ func (c *Component) getWriter(arch dependency.Arch) (*PackageWriter, error) {
 }
 
 // Add a given Package to a Package List. Under the hood, this will
-// get or create a PackageWriter, and invoke the .Add method on the
+// get or create a IndexWriter, and invoke the .Add method on the
 // Package Writer.
 func (c *Component) AddPackage(pkg Package) error {
 	writer, err := c.getWriter(pkg.Architecture)
@@ -387,9 +399,19 @@ func (c *Component) AddPackage(pkg Package) error {
 	return writer.Add(pkg)
 }
 
+//
+func (c *Component) AddSource(pkg control.DSC) error {
+	writer, err := newIndexWriter(c.suite)
+	if err != nil {
+		return err
+	}
+	c.sourceWriter = writer
+	return c.sourceWriter.Add(pkg)
+}
+
 // }}}
 
-// PackageWriter {{{
+// IndexWriter {{{
 
 // This writer represents a Package list - which is to say, a list of
 // binary .deb files, for a particular Architecture, in a particular Component
@@ -397,7 +419,7 @@ func (c *Component) AddPackage(pkg Package) error {
 //
 // This is not an encapsulation to store the entire Index in memory, rather,
 // it's a wrapper to help write Package entries into the Index.
-type PackageWriter struct {
+type IndexWriter struct {
 	archive *Archive
 
 	handle  *blobstore.Writer
@@ -410,7 +432,7 @@ type PackageWriter struct {
 // given a Suite, create a new Package Writer, configured with
 // the appropriate Hashing, and targeting a new file blob in the
 // underlying blobstore.
-func newPackageWriter(suite *Suite) (*PackageWriter, error) {
+func newIndexWriter(suite *Suite) (*IndexWriter, error) {
 	handle, err := suite.archive.store.Create()
 	if err != nil {
 		return nil, err
@@ -434,7 +456,7 @@ func newPackageWriter(suite *Suite) (*PackageWriter, error) {
 		return nil, err
 	}
 
-	return &PackageWriter{
+	return &IndexWriter{
 		archive: suite.archive,
 		closer:  handle.Close,
 		encoder: encoder,
@@ -444,8 +466,8 @@ func newPackageWriter(suite *Suite) (*PackageWriter, error) {
 }
 
 // Write a Package entry into the Packages index.
-func (p PackageWriter) Add(pkg Package) error {
-	return p.encoder.Encode(pkg)
+func (p IndexWriter) Add(data interface{}) error {
+	return p.encoder.Encode(data)
 }
 
 // }}}
