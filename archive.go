@@ -429,6 +429,22 @@ type IndexWriter struct {
 	hashers []*transput.Hasher
 }
 
+func getHashers(suite *Suite) (io.Writer, []*transput.Hasher, error) {
+	ret := []*transput.Hasher{}
+	writers := []io.Writer{}
+
+	for _, algo := range suite.features.Hashes {
+		hasher, err := transput.NewHasher(algo)
+		if err != nil {
+			return nil, nil, err
+		}
+		writers = append(writers, hasher)
+		ret = append(ret, hasher)
+	}
+
+	return io.MultiWriter(writers...), ret, nil
+}
+
 // given a Suite, create a new Package Writer, configured with
 // the appropriate Hashing, and targeting a new file blob in the
 // underlying blobstore.
@@ -438,19 +454,12 @@ func newIndexWriter(suite *Suite) (*IndexWriter, error) {
 		return nil, err
 	}
 
-	hashers := []*transput.Hasher{}
-	writers := []io.Writer{handle}
-	for _, algo := range suite.features.Hashes {
-		hasher, err := transput.NewHasher(algo)
-		if err != nil {
-			handle.Close()
-			return nil, err
-		}
-		hashers = append(hashers, hasher)
-		writers = append(writers, hasher)
+	writer, hashers, err := getHashers(suite)
+	if err != nil {
+		return nil, err
 	}
 
-	encoder, err := control.NewEncoder(io.MultiWriter(writers...))
+	encoder, err := control.NewEncoder(io.MultiWriter(writer, handle))
 	if err != nil {
 		handle.Close()
 		return nil, err
