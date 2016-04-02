@@ -63,10 +63,11 @@ type Source struct {
 	Maintainer       string
 	Uploaders        []string
 	Homepage         string
-	StandardsVersion string `control:"Standards-Version"`
+	StandardsVersion string   `control:"Standards-Version"`
+	PackageList      []string `control:"Package-List" delim:"\n" strip:" \t\n\r" multiline:"true"`
 
-	ChecksumsSha1   []control.SHA1FileHash   `delim:"\n" strip:" \t\n\r" multiline:"true"`
-	ChecksumsSha256 []control.SHA256FileHash `delim:"\n" strip:" \t\n\r" multiline:"true"`
+	ChecksumsSha1   []control.SHA1FileHash   `control:"Checksums-Sha1" delim:"\n" strip:" \t\n\r" multiline:"true"`
+	ChecksumsSha256 []control.SHA256FileHash `control:"Checksums-Sha256" delim:"\n" strip:" \t\n\r" multiline:"true"`
 	Files           []control.MD5FileHash    `delim:"\n" strip:" \t\n\r" multiline:"true"`
 }
 
