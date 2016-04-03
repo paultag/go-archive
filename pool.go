@@ -23,29 +23,29 @@ func poolPrefix(source string) string {
 func (p Pool) Copy(path string) (*blobstore.Object, []control.FileHash, error) {
 	fd, err := os.Open(path)
 	if err != nil {
-		return nil, []control.FileHash{}, nil
+		return nil, []control.FileHash{}, err
 	}
 	defer fd.Close()
 
 	hasherWriter, hashers, err := getHashers(p.suite)
 	if err != nil {
-		return nil, []control.FileHash{}, nil
+		return nil, []control.FileHash{}, err
 	}
 
 	writer, err := p.store.Create()
 	if err != nil {
-		return nil, []control.FileHash{}, nil
+		return nil, []control.FileHash{}, err
 	}
 	defer writer.Close()
 
 	targetWriter := io.MultiWriter(hasherWriter, writer)
 	if _, err := io.Copy(targetWriter, fd); err != nil {
-		return nil, []control.FileHash{}, nil
+		return nil, []control.FileHash{}, err
 	}
 
 	obj, err := p.store.Commit(*writer)
 	if err != nil {
-		return nil, []control.FileHash{}, nil
+		return nil, []control.FileHash{}, err
 	}
 
 	fileHashes := []control.FileHash{}
