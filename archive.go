@@ -57,7 +57,7 @@ func (a Archive) Decruft() error {
 }
 
 // Given a list of objects, link them to the keyed paths.
-func (a Archive) Link(blobs map[string]blobstore.Object) error {
+func (a Archive) Link(blobs StagedChanges) error {
 	for path, obj := range blobs {
 		if err := a.store.Link(obj, path); err != nil {
 			return err
@@ -100,37 +100,54 @@ func newRelease(suite Suite) (*Release, error) {
 	return &release, nil
 }
 
+// This is a set of file changes ready to be passed to `Link` to link in.
+// Basically, this maps file paths to blobstore objects, which will be
+// swapped in all at once. This allows errors to avoid mutating state in
+// the archive.
+type StagedChanges map[string]blobstore.Object
+
 // Engross a Suite for signing and final commit into the blobstore. This
 // will return handle(s) to the signed and ready Objects, fit for passage
 // to Link.
 //
 // This will contain all the related Packages and Release files.
-func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
+func (a Archive) Engross(suite Suite) (StagedChanges, error) {
 	release, err := newRelease(suite)
 	if err != nil {
 		return nil, err
 	}
 
-	files := map[string]blobstore.Object{}
+	files := StagedChanges{}
 	arches := map[dependency.Arch]bool{}
 
 	for name, component := range suite.components {
 		release.Components = append(release.Components, name)
 
+		// Before we go too far, let's go ahead and write out Sources
+		// to the blobstore.
 		suitePath := path.Join(name, "source", "Sources")
 		obj, err := a.store.Commit(*component.sourceWriter.handle)
 		if err != nil {
 			return nil, err
 		}
+
+		// Right, so we've now got a handle to the source blob, so we're
+		// good to keep going. Next, let's take all the hashers and turn them
+		// into FileHashes, and throw that into the Release.
 		for _, hasher := range component.sourceWriter.hashers {
 			fileHash := control.FileHashFromHasher(suitePath, *hasher)
 			release.AddHash(fileHash)
 		}
+
+		// and stage it up for Linkage.
 		filePath := path.Join("dists", suite.Name, suitePath)
 		files[filePath] = *obj
 
 		for arch, writer := range component.packageWriters {
 			arches[arch] = true
+
+			// For each Binary entry, do the same as above (todo: someone
+			// DRY this out a bit. I'm too lazy.
 
 			suitePath := path.Join(name, fmt.Sprintf("binary-%s", arch),
 				"Packages")
@@ -156,6 +173,7 @@ func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
 
 	/* Now, let's do some magic */
 
+	// Now, let's write out the Release file (and sign it normally)
 	obj, sig, err := suite.archive.encodeSigned(release)
 	if err != nil {
 		return nil, err
@@ -165,6 +183,7 @@ func (a Archive) Engross(suite Suite) (map[string]blobstore.Object, error) {
 	files[filePath] = *obj
 	files[fmt.Sprintf("%s.gpg", filePath)] = *sig
 
+	// Ditto with the clearsigned version (Should we merge the two above?)
 	obj, err = suite.archive.encodeClearsigned(release)
 	if err != nil {
 		return nil, err
