@@ -58,8 +58,12 @@ func (a Archive) Decruft() error {
 
 // Get the current state of files in the Archive, which is an underlying
 // call to the blobstore Paths function.
-func (a Archive) State() (ArchiveState, error) {
+func (a Archive) Paths() (ArchiveState, error) {
 	return a.store.Paths()
+}
+
+func (a Archive) Open(o blobstore.Object) (io.ReadCloser, error) {
+	return a.store.Open(o)
 }
 
 // Given a list of objects, link them to the keyed paths.
