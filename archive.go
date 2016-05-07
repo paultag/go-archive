@@ -122,27 +122,6 @@ func (a Archive) Engross(suite Suite) (StagedChanges, error) {
 
 	for name, component := range suite.components {
 		release.Components = append(release.Components, name)
-
-		// Before we go too far, let's go ahead and write out Sources
-		// to the blobstore.
-		suitePath := path.Join(name, "source", "Sources")
-		obj, err := a.store.Commit(*component.sourceWriter.handle)
-		if err != nil {
-			return nil, err
-		}
-
-		// Right, so we've now got a handle to the source blob, so we're
-		// good to keep going. Next, let's take all the hashers and turn them
-		// into FileHashes, and throw that into the Release.
-		for _, hasher := range component.sourceWriter.hashers {
-			fileHash := control.FileHashFromHasher(suitePath, *hasher)
-			release.AddHash(fileHash)
-		}
-
-		// and stage it up for Linkage.
-		filePath := path.Join("dists", suite.Name, suitePath)
-		files[filePath] = *obj
-
 		for arch, writer := range component.packageWriters {
 			arches[arch] = true
 
@@ -384,7 +363,6 @@ func (s Suite) Component(name string) (*Component, error) {
 type Component struct {
 	suite          *Suite
 	packageWriters map[dependency.Arch]*IndexWriter
-	sourceWriter   *IndexWriter
 }
 
 // Create a new Component, configured for use.
@@ -416,16 +394,6 @@ func (c *Component) AddPackage(pkg Package) error {
 		return err
 	}
 	return writer.Add(pkg)
-}
-
-//
-func (c *Component) AddSource(pkg Source) error {
-	writer, err := newIndexWriter(c.suite)
-	if err != nil {
-		return err
-	}
-	c.sourceWriter = writer
-	return c.sourceWriter.Add(pkg)
 }
 
 // }}}
