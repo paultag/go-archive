@@ -56,8 +56,14 @@ func (a Archive) Decruft() error {
 	return a.store.GC(blobstore.DumbGarbageCollector{})
 }
 
+// Get the current state of files in the Archive, which is an underlying
+// call to the blobstore Paths function.
+func (a Archive) State() (ArchiveState, error) {
+	return a.store.Paths()
+}
+
 // Given a list of objects, link them to the keyed paths.
-func (a Archive) Link(blobs StagedChanges) error {
+func (a Archive) Link(blobs ArchiveState) error {
 	for path, obj := range blobs {
 		if err := a.store.Link(obj, path); err != nil {
 			return err
@@ -104,20 +110,20 @@ func newRelease(suite Suite) (*Release, error) {
 // Basically, this maps file paths to blobstore objects, which will be
 // swapped in all at once. This allows errors to avoid mutating state in
 // the archive.
-type StagedChanges map[string]blobstore.Object
+type ArchiveState map[string]blobstore.Object
 
 // Engross a Suite for signing and final commit into the blobstore. This
 // will return handle(s) to the signed and ready Objects, fit for passage
 // to Link.
 //
 // This will contain all the related Packages and Release files.
-func (a Archive) Engross(suite Suite) (StagedChanges, error) {
+func (a Archive) Engross(suite Suite) (ArchiveState, error) {
 	release, err := newRelease(suite)
 	if err != nil {
 		return nil, err
 	}
 
-	files := StagedChanges{}
+	files := ArchiveState{}
 	arches := map[dependency.Arch]bool{}
 
 	for name, component := range suite.components {
