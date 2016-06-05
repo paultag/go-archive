@@ -26,6 +26,7 @@ import (
 type Archive struct {
 	store      blobstore.Store
 	signingKey *openpgp.Entity
+	path       string
 }
 
 // Create a new Archive at the given `root` on the filesystem, with the
@@ -44,7 +45,12 @@ func New(path string, signer *openpgp.Entity) (*Archive, error) {
 	return &Archive{
 		store:      *store,
 		signingKey: signer,
+		path:       path,
 	}, nil
+}
+
+func (a Archive) Path() string {
+	return a.path
 }
 
 // Use the default backend to remove any unlinked files from the Blob store.
@@ -62,6 +68,8 @@ func (a Archive) Paths() (ArchiveState, error) {
 	return a.store.Paths()
 }
 
+// Get an io.ReadCloser from the underlying Blobstore. This is a passthrough
+// to the underlying blobstore function.
 func (a Archive) Open(o blobstore.Object) (io.ReadCloser, error) {
 	return a.store.Open(o)
 }
