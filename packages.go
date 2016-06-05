@@ -62,6 +62,7 @@ type Package struct {
 	MD5sum         string
 	SHA1           string
 	SHA256         string
+	SHA512         string
 	DescriptionMD5 string `control:"Description-md5"`
 }
 
