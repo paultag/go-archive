@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"path"
+	"path/filepath"
 	"time"
 
 	"crypto"
@@ -37,6 +38,12 @@ type Archive struct {
 // steps must be taken to load an Archive over the network, and attention
 // must be paid when handling the Cryptographic chain of trust.
 func New(path string, signer *openpgp.Entity) (*Archive, error) {
+	var err error
+	path, err = filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+
 	store, err := blobstore.Load(path)
 	if err != nil {
 		return nil, err
