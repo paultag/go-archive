@@ -34,7 +34,7 @@ func (p Pool) Copy(path string) (*blobstore.Object, error) {
 	defer writer.Close()
 
 	if _, err := io.Copy(writer, fd); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	obj, err := p.store.Commit(*writer)
