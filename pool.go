@@ -20,41 +20,29 @@ func poolPrefix(source string) string {
 	return path.Join(source[0:1], source)
 }
 
-func (p Pool) Copy(path string) (*blobstore.Object, []control.FileHash, error) {
+func (p Pool) Copy(path string) (*blobstore.Object, error) {
 	fd, err := os.Open(path)
 	if err != nil {
-		return nil, []control.FileHash{}, err
+		return nil, err
 	}
 	defer fd.Close()
 
-	hasherWriter, hashers, err := getHashers(p.suite)
-	if err != nil {
-		return nil, []control.FileHash{}, err
-	}
-
 	writer, err := p.store.Create()
 	if err != nil {
-		return nil, []control.FileHash{}, err
+		return nil, err
 	}
 	defer writer.Close()
 
-	targetWriter := io.MultiWriter(hasherWriter, writer)
-	if _, err := io.Copy(targetWriter, fd); err != nil {
-		return nil, []control.FileHash{}, err
+	if _, err := io.Copy(writer, fd); err != nil {
+		return nil, nil, err
 	}
 
 	obj, err := p.store.Commit(*writer)
 	if err != nil {
-		return nil, []control.FileHash{}, err
+		return nil, err
 	}
 
-	fileHashes := []control.FileHash{}
-	for _, hasher := range hashers {
-		fileHash := control.FileHashFromHasher(path, *hasher)
-		fileHashes = append(fileHashes, fileHash)
-	}
-
-	return obj, fileHashes, nil
+	return obj, nil
 }
 
 func (p Pool) IncludeSources(dsc *control.DSC) (string, map[string]blobstore.Object, error) {
@@ -63,7 +51,7 @@ func (p Pool) IncludeSources(dsc *control.DSC) (string, map[string]blobstore.Obj
 	targetDir := path.Join("pool", poolPrefix(dsc.Source))
 
 	for _, file := range dsc.Files {
-		obj, _, err := p.Copy(file.Filename)
+		obj, err := p.Copy(file.Filename)
 		if err != nil {
 			return "", nil, err
 		}
@@ -72,7 +60,7 @@ func (p Pool) IncludeSources(dsc *control.DSC) (string, map[string]blobstore.Obj
 		files[path.Join(targetDir, localName)] = *obj
 	}
 
-	obj, _, err := p.Copy(dsc.Filename)
+	obj, err := p.Copy(dsc.Filename)
 	if err != nil {
 		return "", nil, err
 	}
@@ -90,7 +78,7 @@ func (p Pool) IncludeSources(dsc *control.DSC) (string, map[string]blobstore.Obj
 }
 
 func (p Pool) IncludeDeb(debFile *deb.Deb) (string, *blobstore.Object, error) {
-	obj, _, err := p.Copy(debFile.Path)
+	obj, err := p.Copy(debFile.Path)
 	if err != nil {
 		return "", nil, err
 	}
