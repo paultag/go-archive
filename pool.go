@@ -13,7 +13,6 @@ import (
 
 type Pool struct {
 	store blobstore.Store
-	suite *Suite
 }
 
 func poolPrefix(source string) string {

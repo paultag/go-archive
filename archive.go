@@ -28,6 +28,7 @@ type Archive struct {
 	store      blobstore.Store
 	signingKey *openpgp.Entity
 	path       string
+	Pool       Pool
 }
 
 // Create a new Archive at the given `root` on the filesystem, with the
@@ -53,6 +54,7 @@ func New(path string, signer *openpgp.Entity) (*Archive, error) {
 		store:      *store,
 		signingKey: signer,
 		path:       path,
+		Pool:       Pool{store: *store},
 	}, nil
 }
 
@@ -333,7 +335,6 @@ type Suite struct {
 	Label       string
 	Version     string
 
-	Pool       Pool                  `control:"-"`
 	components map[string]*Component `control:"-"`
 
 	features struct {
@@ -352,7 +353,6 @@ func (a Archive) Suite(name string) (*Suite, error) {
 		components: map[string]*Component{},
 	}
 
-	suite.Pool = Pool{store: a.store, suite: &suite}
 	suite.features.Hashes = []string{"sha256", "sha1", "sha512"}
 	suite.features.Duration = "240h"
 
