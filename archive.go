@@ -25,7 +25,7 @@ import (
 // Core Archive abstrcation. This contains helpers to write out package files,
 // as well as handles creating underlying abstractions (such as Suites).
 type Archive struct {
-	store      blobstore.Store
+	Store      blobstore.Store
 	signingKey *openpgp.Entity
 	path       string
 	Pool       Pool
@@ -51,10 +51,10 @@ func New(path string, signer *openpgp.Entity) (*Archive, error) {
 	}
 
 	return &Archive{
-		store:      *store,
+		Store:      *store,
 		signingKey: signer,
 		path:       path,
-		Pool:       Pool{store: *store},
+		Pool:       Pool{Store: *store},
 	}, nil
 }
 
@@ -68,25 +68,13 @@ func (a Archive) Path() string {
 // by the garbage collector. Decruft only when you're sure the stage has been
 // set.
 func (a Archive) Decruft() error {
-	return a.store.GC(blobstore.DumbGarbageCollector{})
-}
-
-// Get the current state of files in the Archive, which is an underlying
-// call to the blobstore Paths function.
-func (a Archive) Paths() (ArchiveState, error) {
-	return a.store.Paths()
-}
-
-// Get an io.ReadCloser from the underlying Blobstore. This is a passthrough
-// to the underlying blobstore function.
-func (a Archive) Open(o blobstore.Object) (io.ReadCloser, error) {
-	return a.store.Open(o)
+	return a.Store.GC(blobstore.DumbGarbageCollector{})
 }
 
 // Given a list of objects, link them to the keyed paths.
 func (a Archive) Link(blobs ArchiveState) error {
 	for path, obj := range blobs {
-		if err := a.store.Link(obj, path); err != nil {
+		if err := a.Store.Link(obj, path); err != nil {
 			return err
 		}
 	}
@@ -158,7 +146,7 @@ func (a Archive) Engross(suite Suite) (ArchiveState, error) {
 			suitePath := path.Join(name, fmt.Sprintf("binary-%s", arch),
 				"Packages")
 
-			obj, err := a.store.Commit(*writer.handle)
+			obj, err := a.Store.Commit(*writer.handle)
 			if err != nil {
 				return nil, err
 			}
@@ -208,7 +196,7 @@ func (a Archive) encodeClearsigned(data interface{}) (*blobstore.Object, error) 
 		return nil, fmt.Errorf("No signing key loaded")
 	}
 
-	fd, err := a.store.Create()
+	fd, err := a.Store.Create()
 	if err != nil {
 		return nil, err
 	}
@@ -232,7 +220,7 @@ func (a Archive) encodeClearsigned(data interface{}) (*blobstore.Object, error) 
 		return nil, err
 	}
 
-	return a.store.Commit(*fd)
+	return a.Store.Commit(*fd)
 }
 
 // Given a control.Marshal'able object, encode it to the blobstore, while
@@ -247,7 +235,7 @@ func (a Archive) encodeSigned(data interface{}) (*blobstore.Object, *blobstore.O
 		return nil, nil, fmt.Errorf("No signing key loaded")
 	}
 
-	signature, err := a.store.Create()
+	signature, err := a.Store.Create()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -278,7 +266,7 @@ func (a Archive) encodeSigned(data interface{}) (*blobstore.Object, *blobstore.O
 		return nil, nil, err
 	}
 
-	sigObj, err := a.store.Commit(*signature)
+	sigObj, err := a.Store.Commit(*signature)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -294,7 +282,7 @@ func (a Archive) encodeSigned(data interface{}) (*blobstore.Object, *blobstore.O
 // the blobstore. This may be useful if you wish to have a copy of the data
 // going into the store.
 func (a Archive) encode(data interface{}, tap io.Writer) (*blobstore.Object, error) {
-	fd, err := a.store.Create()
+	fd, err := a.Store.Create()
 	if err != nil {
 		return nil, err
 	}
@@ -313,7 +301,7 @@ func (a Archive) encode(data interface{}, tap io.Writer) (*blobstore.Object, err
 		return nil, err
 	}
 
-	return a.store.Commit(*fd)
+	return a.Store.Commit(*fd)
 }
 
 // }}}
@@ -461,7 +449,7 @@ func getHashers(suite *Suite) (io.Writer, []*transput.Hasher, error) {
 // the appropriate Hashing, and targeting a new file blob in the
 // underlying blobstore.
 func newIndexWriter(suite *Suite) (*IndexWriter, error) {
-	handle, err := suite.archive.store.Create()
+	handle, err := suite.archive.Store.Create()
 	if err != nil {
 		return nil, err
 	}

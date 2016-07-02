@@ -12,7 +12,7 @@ import (
 )
 
 type Pool struct {
-	store blobstore.Store
+	Store blobstore.Store
 }
 
 func poolPrefix(source string) string {
@@ -26,7 +26,7 @@ func (p Pool) Copy(path string) (*blobstore.Object, error) {
 	}
 	defer fd.Close()
 
-	writer, err := p.store.Create()
+	writer, err := p.Store.Create()
 	if err != nil {
 		return nil, err
 	}
@@ -36,7 +36,7 @@ func (p Pool) Copy(path string) (*blobstore.Object, error) {
 		return nil, err
 	}
 
-	obj, err := p.store.Commit(*writer)
+	obj, err := p.Store.Commit(*writer)
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +68,7 @@ func (p Pool) IncludeSources(dsc *control.DSC) (string, map[string]blobstore.Obj
 	files[path.Join(targetDir, localName)] = *obj
 
 	for path, object := range files {
-		if err := p.store.Link(object, path); err != nil {
+		if err := p.Store.Link(object, path); err != nil {
 			return "", nil, err
 		}
 	}
@@ -93,5 +93,5 @@ func (p Pool) IncludeDeb(debFile *deb.Deb) (string, *blobstore.Object, error) {
 		),
 	)
 
-	return debPath, obj, p.store.Link(*obj, debPath)
+	return debPath, obj, p.Store.Link(*obj, debPath)
 }
