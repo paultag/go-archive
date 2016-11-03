@@ -105,7 +105,7 @@ func newRelease(suite Suite) (*Release, error) {
 		Label:       suite.Label,
 		Version:     suite.Version,
 	}
-	release.Date = when.Format(time.RFC1123Z)
+	release.Date = when.In(time.UTC).Format(time.RFC1123Z)
 	release.Architectures = []dependency.Arch{}
 	release.Components = []string{}
 	release.SHA256 = []control.SHA256FileHash{}
