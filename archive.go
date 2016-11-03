@@ -94,7 +94,7 @@ func newRelease(suite Suite) (*Release, error) {
 		if err != nil {
 			return nil, err
 		}
-		validUntil = when.Add(duration).Format(time.RFC1123Z)
+		validUntil = when.Add(duration).In(time.UTC).Format(time.RFC1123Z)
 	}
 
 	release := Release{
@@ -202,7 +202,9 @@ func (a Archive) encodeClearsigned(data interface{}) (*blobstore.Object, error) 
 	}
 
 	defer fd.Close()
-	wc, err := clearsign.Encode(fd, a.signingKey.PrivateKey, nil)
+	wc, err := clearsign.Encode(fd, a.signingKey.PrivateKey, &packet.Config{
+		DefaultHash: crypto.SHA512,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -257,7 +259,10 @@ func (a Archive) encodeSigned(data interface{}) (*blobstore.Object, *blobstore.O
 	sig.CreationTime = new(packet.Config).Now()
 	sig.IssuerKeyId = &(a.signingKey.PrivateKey.KeyId)
 
-	err = sig.Sign(hash, a.signingKey.PrivateKey, nil)
+	err = sig.Sign(hash, a.signingKey.PrivateKey, &packet.Config{
+		DefaultHash: crypto.SHA512,
+	})
+
 	if err != nil {
 		return nil, nil, err
 	}
@@ -342,7 +347,7 @@ func (a Archive) Suite(name string) (*Suite, error) {
 	}
 
 	suite.features.Hashes = []string{"sha256", "sha1", "sha512"}
-	suite.features.Duration = "240h"
+	suite.features.Duration = "168h"
 
 	return &suite, nil
 }
