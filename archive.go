@@ -65,9 +65,9 @@ func (a Archive) Path() string {
 // Use the default backend to remove any unlinked files from the Blob store.
 //
 // If files you care about are not linked onto the stage, they will be removed
-// by the garbage collector. Decruft only when you're sure the stage has been
+// by the garbage collector. GC only when you're sure the stage has been
 // set.
-func (a Archive) Decruft() error {
+func (a Archive) GC() error {
 	return a.Store.GC(blobstore.DumbGarbageCollector{})
 }
 
