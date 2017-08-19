@@ -46,7 +46,7 @@ type Package struct {
 	control.Paragraph
 
 	Package       string `required:"true"`
-	Source        string
+	Source        SourceName
 	Version       version.Version `required:"true"`
 	Section       string
 	Priority      string
@@ -128,6 +128,31 @@ func PackageFromDeb(debFile deb.Deb) (*Package, error) {
 type Packages struct {
 	decoder *control.Decoder
 }
+
+// Map {{{
+
+// Get any packages that match the criteria
+func (p *Packages) Map(q func(*Package) bool) ([]Package, error) {
+	ret := []Package{}
+
+	for {
+		pkg, err := p.Next()
+		if err == io.EOF {
+			return ret, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		if q(pkg) {
+			ret = append(ret, *pkg)
+		}
+	}
+
+	return ret, nil
+}
+
+// }}}
 
 // Next {{{
 

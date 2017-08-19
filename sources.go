@@ -21,14 +21,48 @@
 package archive
 
 import (
+	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"pault.ag/go/debian/control"
 	// "pault.ag/go/debian/deb"
 	"pault.ag/go/debian/dependency"
 	"pault.ag/go/debian/version"
 )
+
+type SourceName struct {
+	Name    string
+	Version version.Version
+}
+
+func (sn *SourceName) UnmarshalControl(data string) error {
+	hunks := strings.Split(data, " ")
+	var err error
+
+	switch len(hunks) {
+	case 1:
+		sn.Name = hunks[0]
+		return nil
+	case 2:
+		sn.Name = hunks[0]
+		sn.Version, err = version.Parse(hunks[1][1 : len(hunks[1])-1])
+		if err != nil {
+			return err
+		}
+		return nil
+	default:
+		return fmt.Errorf("Source entry is malformed: %s\n", data)
+	}
+}
+
+func (sn *SourceName) MarshalControl() (string, error) {
+	if sn.Version.Empty() {
+		return sn.Name, nil
+	}
+	return fmt.Sprintf("%s (%s)", sn.Name, sn.Version.String()), nil
+}
 
 // Source {{{
 
