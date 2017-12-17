@@ -17,7 +17,7 @@ import (
 	"pault.ag/go/blobstore"
 	"pault.ag/go/debian/control"
 	"pault.ag/go/debian/dependency"
-	"pault.ag/go/debian/transput"
+	"pault.ag/go/debian/hashio"
 )
 
 // Archive {{{
@@ -431,15 +431,15 @@ type IndexWriter struct {
 	closer  func() error
 	encoder *control.Encoder
 
-	hashers []*transput.Hasher
+	hashers []*hashio.Hasher
 }
 
-func getHashers(suite *Suite) (io.Writer, []*transput.Hasher, error) {
-	ret := []*transput.Hasher{}
+func getHashers(suite *Suite) (io.Writer, []*hashio.Hasher, error) {
+	ret := []*hashio.Hasher{}
 	writers := []io.Writer{}
 
 	for _, algo := range suite.features.Hashes {
-		hasher, err := transput.NewHasher(algo)
+		hasher, err := hashio.NewHasher(algo)
 		if err != nil {
 			return nil, nil, err
 		}
