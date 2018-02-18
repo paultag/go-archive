@@ -178,17 +178,19 @@ type Release struct {
 }
 
 // Given a file declared in the Release file, get the FileHash entries
-// for that file (MD5, SHA1, SHA256). These can be used to ensure the
+// for that file (SHA256, SHA512). These can be used to ensure the
 // integrety of files in the archive.
 func (r *Release) Indices() map[string]control.FileHashes {
 	ret := map[string]control.FileHashes{}
-	for _, el := range r.MD5Sum {
-		ret[el.Filename] = append(ret[el.Filename], el.FileHash)
-	}
-	for _, el := range r.SHA1 {
-		ret[el.Filename] = append(ret[el.Filename], el.FileHash)
-	}
+
+	// https://wiki.debian.org/DebianRepository/Format#Size.2C_MD5sum.2C_SHA1.2C_SHA256.2C_SHA512:
+	// Clients may not use the MD5Sum and SHA1 fields for security purposes, and
+	// must require a SHA256 or a SHA512 field.
+
 	for _, el := range r.SHA256 {
+		ret[el.Filename] = append(ret[el.Filename], el.FileHash)
+	}
+	for _, el := range r.SHA512 {
 		ret[el.Filename] = append(ret[el.Filename], el.FileHash)
 	}
 	return ret
