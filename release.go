@@ -175,6 +175,8 @@ type Release struct {
 	// NotAutomatic is invalid.
 	NotAutomatic         string
 	ButAutomaticUpgrades string
+
+	AcquireByHash bool `control:"Acquire-By-Hash"`
 }
 
 // Given a file declared in the Release file, get the FileHash entries
