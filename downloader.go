@@ -300,3 +300,65 @@ func (g *Downloader) Release(suite string) (*Release, *ReleaseDownloader, error)
 
 	return r, &ReleaseDownloader{fi.ModTime(), r.AcquireByHash, g, suite}, nil
 }
+
+// DefaultDownloader is a ready-to-use Downloader, used by convenience wrappers
+// such as CachedRelease and, by extension, TempFile.
+var DefaultDownloader = &Downloader{
+	Parallel:            10,
+	MaxTransientRetries: 3,
+	Mirror:              "https://deb.debian.org/debian",
+}
+
+type cachedRelease struct {
+	r   *Release
+	rd  *ReleaseDownloader
+	err error
+}
+
+var (
+	releaseCacheMu sync.Mutex
+	releaseCache   = make(map[string]cachedRelease)
+)
+
+// CachedRelease returns DefaultDownloader.Release(suite), caching releases for
+// the duration of the process.
+func CachedRelease(suite string) (*Release, *ReleaseDownloader, error) {
+	releaseCacheMu.Lock()
+	cached, ok := releaseCache[suite]
+	releaseCacheMu.Unlock()
+	if ok {
+		return cached.r, cached.rd, cached.err
+	}
+
+	r, rd, err := DefaultDownloader.Release(suite)
+	releaseCacheMu.Lock()
+	defer releaseCacheMu.Unlock()
+	if cached, ok := releaseCache[suite]; ok {
+		// Another goroutine raced us, return cached values for consistency:
+		return cached.r, cached.rd, cached.err
+	}
+
+	releaseCache[suite] = cachedRelease{r, rd, err}
+	return r, rd, err
+}
+
+// TempFile expects a path starting with dists/<suite>, calls Release(suite),
+// looks up the remaining path within the release and calls TempFile on the
+// corresponding ReleaseDownloader.
+func TempFile(path string) (*os.File, error) {
+	if !strings.HasPrefix(path, "dists/") {
+		return nil, fmt.Errorf("path %q does not start with dists/", path)
+	}
+	path = strings.TrimPrefix(path, "dists/")
+	suite := strings.Split(path, "/")[0]
+	r, rd, err := CachedRelease(suite)
+	if err != nil {
+		return nil, err
+	}
+	remainder := strings.TrimPrefix(path, suite+"/")
+	fhs, ok := r.Indices()[remainder]
+	if !ok {
+		return nil, fmt.Errorf("%s not found", remainder)
+	}
+	return rd.TempFile(fhs[0])
+}
