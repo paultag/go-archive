@@ -59,9 +59,11 @@ type Downloader struct {
 	// The default value of empty string uses the default directory, see os.TempDir.
 	TempDir string
 
-	once    sync.Once
-	pool    *pool
-	keyring openpgp.EntityList
+	once sync.Once
+	pool *pool
+	// Keyring is used for validating archive GPG signatures. If nil, the
+	// keyring is loaded from DebianArchiveKeyring.
+	Keyring openpgp.EntityList
 }
 
 type transientError struct {
@@ -208,7 +210,9 @@ func (g *Downloader) init() error {
 	var err error
 	g.once.Do(func() {
 		g.pool = newPool(g.Parallel)
-		err = g.loadArchiveKeyrings()
+		if g.Keyring == nil {
+			err = g.loadArchiveKeyrings()
+		}
 	})
 	return err
 }
@@ -229,7 +233,7 @@ func (g *Downloader) loadArchiveKeyrings() error {
 		return err
 	}
 	defer f.Close()
-	g.keyring, err = openpgp.ReadKeyRing(f)
+	g.Keyring, err = openpgp.ReadKeyRing(f)
 	return err
 }
 
@@ -288,7 +292,7 @@ func (g *Downloader) Release(suite string) (*Release, *ReleaseDownloader, error)
 	defer os.Remove(f.Name())
 	defer f.Close()
 
-	r, err := LoadInRelease(f, &g.keyring)
+	r, err := LoadInRelease(f, &g.Keyring)
 	if err != nil {
 		return nil, nil, fmt.Errorf("LoadInRelease(%s): %v", u, err)
 	}
