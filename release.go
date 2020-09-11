@@ -93,13 +93,13 @@ type Release struct {
 	// directly beneath dists/. As an example, security updates are specified
 	// in APT as:
 	//
-	// deb http://security.debian.org/ stable/updates main)
+	// deb http://security.debian.org/debian-security stable-security main)
 	//
 	// The Release file would be located at
-	// http://security.debian.org/dists/stable/updates/Release and look like:
+	// http://security.debian.org/dists/stable-security/Release and look like:
 	//
-	//   Suite: stable
-	//   Components: updates/main updates/contrib updates/non-free
+	//   Suite: stable-security
+	//   Components: main contrib non-free
 	Components []string `delim:" "`
 
 	// Whitespace separated unique single words identifying Debian machine
