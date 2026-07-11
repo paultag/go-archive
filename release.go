@@ -25,7 +25,7 @@ import (
 	"io"
 	"os"
 
-	"golang.org/x/crypto/openpgp"
+	"github.com/ProtonMail/go-crypto/openpgp"
 	"pault.ag/go/debian/control"
 	"pault.ag/go/debian/dependency"
 )

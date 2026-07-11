@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/crypto/openpgp"
+	"github.com/ProtonMail/go-crypto/openpgp"
 	"pault.ag/go/debian/control"
 	"pault.ag/go/debian/deb"
 )
@@ -175,24 +175,26 @@ func (g *Downloader) tempFileWithFilename(verifier io.WriteCloser, decompressor 
 // an error will be returned.
 //
 // If err is nil, the caller must remove the file when no longer needed:
-//    f, err := r.GetTempFile(fh)
-//    if err != nil {
-//        return nil, err
-//    }
-//    defer f.Close() // avoid leaking resources
-//    defer os.Remove(f.Name()) // remove from file system
-//    return parseSources(f)
+//
+//	f, err := r.GetTempFile(fh)
+//	if err != nil {
+//	    return nil, err
+//	}
+//	defer f.Close() // avoid leaking resources
+//	defer os.Remove(f.Name()) // remove from file system
+//	return parseSources(f)
 //
 // Remember that files must be closed before they can be read by external processes:
-//    f, err := r.GetTempFile(fh)
-//    if err != nil {
-//        return err
-//    }
-//    if err := f.Close(); err != nil {
-//        return err
-//    }
-//    defer os.Remove(f.Name()) // remove from file system
-//    return exec.Command("tar", "xf", f.Name()).Run()
+//
+//	f, err := r.GetTempFile(fh)
+//	if err != nil {
+//	    return err
+//	}
+//	if err := f.Close(); err != nil {
+//	    return err
+//	}
+//	defer os.Remove(f.Name()) // remove from file system
+//	return exec.Command("tar", "xf", f.Name()).Run()
 func (g *Downloader) TempFile(fh control.FileHash) (*os.File, error) {
 	if err := g.init(); err != nil {
 		return nil, err
