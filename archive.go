@@ -10,9 +10,9 @@ import (
 	"crypto"
 	"crypto/sha512"
 
-	"golang.org/x/crypto/openpgp"
-	"golang.org/x/crypto/openpgp/clearsign"
-	"golang.org/x/crypto/openpgp/packet"
+	"github.com/ProtonMail/go-crypto/openpgp"
+	"github.com/ProtonMail/go-crypto/openpgp/clearsign"
+	"github.com/ProtonMail/go-crypto/openpgp/packet"
 
 	"pault.ag/go/blobstore"
 	"pault.ag/go/debian/control"
