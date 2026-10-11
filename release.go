@@ -226,6 +226,12 @@ func LoadInRelease(in io.Reader, keyring *openpgp.EntityList) (*Release, error) 
 	if err != nil {
 		return nil, err
 	}
+	// control.NewDecoder accepts unsigned data,
+	// so verify that the data was actually signed
+	// in case a keyring was provided (= verification was requested).
+	if keyring != nil && decoder.Signer() == nil {
+		return nil, fmt.Errorf("InRelease is not signed, but a keyring was provided")
+	}
 	return &ret, decoder.Decode(&ret)
 }
 
