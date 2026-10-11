@@ -279,12 +279,9 @@ func (g *Downloader) Release(suite string) (*Release, *ReleaseDownloader, error)
 		return nil, nil, err
 	}
 
+	// InRelease files are available for all suites since
+	// Debian buster became stable in 2019.
 	u := "dists/" + suite + "/InRelease"
-	if strings.HasSuffix(suite, "stable") {
-		// Only testing (buster) has InRelease at this point, so fall back to
-		// Release for *stable:
-		u = "dists/" + suite + "/Release"
-	}
 	verifier := &noopVerifier{}             // verification happens in LoadInRelease
 	decompressor := deb.DecompressorFor("") // InRelease is not compressed
 	f, err := g.tempFileWithFilename(verifier, decompressor, u)
